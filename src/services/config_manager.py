@@ -125,17 +125,17 @@ class ConfigManager:
             # For now, assume local:vztmpl/ prefix
             template = f"local:vztmpl/{template}"
 
-        # Get resource settings
+        # Get resource settings (check both direct and nested locations)
         resources = container_config.get('resources', {})
-        cores = resources.get('cores', 2)
-        memory = resources.get('memory', 1024)
-        storage = resources.get('storage', 10)
+        cores = container_config.get('cores', resources.get('cores', 2))
+        memory = container_config.get('memory', resources.get('memory', 1024))
+        storage = container_config.get('storage', resources.get('storage', 10))
 
-        # Get network settings
+        # Get network settings (check both direct and nested locations)
         network = container_config.get('network', {})
-        bridge = network.get('bridge', 'vmbr0')
-        ip = network.get('ip')
-        gateway = network.get('gateway')
+        bridge = container_config.get('network_bridge', network.get('bridge', 'vmbr0'))
+        ip = container_config.get('network_ip', network.get('ip'))
+        gateway = container_config.get('network_gateway', network.get('gateway'))
 
         # Get features
         features = container_config.get('features', {})
@@ -179,7 +179,7 @@ class ConfigManager:
             cores=cores,
             memory=memory,
             storage=storage,
-            storage_pool=resources.get('storage_pool', 'local-lvm'),
+            storage_pool=container_config.get('storage_pool', resources.get('storage_pool', 'local-lvm')),
             network_bridge=bridge,
             network_ip=ip,
             network_gateway=gateway,
