@@ -81,7 +81,6 @@ def destroy(ctx, vmid, force, purge, remove_tailscale_node):
             tailscale_configured = bool(os.getenv('TAILSCALE_API_KEY')) and bool(os.getenv('TAILSCALE_TAILNET'))
             
             if tailscale_configured:
-                output.print("")
                 output.info("Checking for associated Tailscale node...")
                 try:
                     from src.services.tailscale import TailscaleNodeManager
