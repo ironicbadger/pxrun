@@ -230,81 +230,19 @@ def create(ctx, config, hostname, template, node, cores, memory, storage,
 
         # Run provisioning if configured
         if provision and provisioning_config and provisioning_config.has_provisioning():
-            click.echo("\nRunning provisioning...")
+            click.echo("\nRunning provisioning via Proxmox pct exec...")
 
-            # Get container IP address
-            container_ip = None
-            if container.network_ip and container.network_ip != 'dhcp':
-                container_ip = container.network_ip.split('/')[0]
+            # Wait a moment for container to fully start
+            time.sleep(3)
+
+            click.echo("Executing provisioning commands on container...")
+            if proxmox.provision_container_via_exec(container.node, container.vmid, provisioning_config):
+                click.echo("✓ Provisioning completed successfully")
             else:
-                # For DHCP containers, try to get IP from Proxmox
-                click.echo("Container uses DHCP, attempting to discover IP address...")
-                try:
-                    # Wait a moment for network to come up
-                    time.sleep(5)
-                    container_status = proxmox.get_container(container.node, container.vmid)
-                    if container_status and hasattr(container_status, 'network_ip') and container_status.network_ip:
-                        container_ip = container_status.network_ip
-                        click.echo(f"Discovered container IP: {container_ip}")
-                    else:
-                        click.echo("Could not auto-discover container IP address")
-                        container_ip = click.prompt("Enter container IP address for provisioning", type=str)
-                except Exception as e:
-                    click.echo(f"Failed to discover IP: {e}")
-                    if click.confirm("Enter IP address manually for provisioning?", default=True):
-                        container_ip = click.prompt("Container IP address", type=str)
-
-            if not container_ip:
-                click.echo("Skipping provisioning - no IP address available", err=True)
-                return
-
-            # Try SSH key authentication first, then fall back to password
-            ssh_key_path = os.environ.get('SSH_KEY_PATH', '~/.ssh/id_rsa')
-            ssh_key_path = os.path.expanduser(ssh_key_path)
-
-            ssh_config = SSHConfig(
-                host=container_ip,
-                username='root',
-                key_filename=ssh_key_path if os.path.exists(ssh_key_path) else None,
-                password=None,  # Try key first
-                timeout=30,
-                retry_attempts=12,  # More retries for container startup
-                retry_delay=5
-            )
-
-            provisioner = SSHProvisioner(ssh_config)
-
-            click.echo(f"Attempting SSH connection to {container_ip}...")
-            if provisioner.connect(wait_for_ssh=True):
-                click.echo("✓ SSH connection established")
-                if provisioner.provision(provisioning_config):
-                    click.echo("✓ Provisioning completed successfully")
-                else:
-                    click.echo("Warning: Some provisioning steps failed", err=True)
-                provisioner.disconnect()
-            else:
-                click.echo("✗ Could not establish SSH connection", err=True)
-                click.echo("\nTroubleshooting tips:")
-                click.echo("1. Ensure your SSH key is added to the ssh-agent")
-                click.echo("2. Check that the container is fully started")
-                click.echo("3. Verify network connectivity to the container")
-                click.echo(f"4. Try manual SSH: ssh root@{container_ip}")
-
-                if click.confirm("Try provisioning with password authentication?", default=False):
-                    password = click.prompt("Root password", hide_input=True)
-                    ssh_config.password = password
-                    ssh_config.key_filename = None
-
-                    provisioner = SSHProvisioner(ssh_config)
-                    if provisioner.connect(wait_for_ssh=False):
-                        click.echo("✓ SSH connection established with password")
-                        if provisioner.provision(provisioning_config):
-                            click.echo("✓ Provisioning completed successfully")
-                        else:
-                            click.echo("Warning: Some provisioning steps failed", err=True)
-                        provisioner.disconnect()
-                    else:
-                        click.echo("✗ Password authentication also failed", err=True)
+                click.echo("✗ Some provisioning steps failed", err=True)
+                click.echo("\nYou can manually provision the container with:")
+                click.echo(f"  pxrun ssh {container.vmid}")
+                click.echo("  Or access it via the Proxmox web interface")
 
         click.echo(f"\nContainer {container.hostname} is ready!")
         click.echo(f"Connect with: ssh root@{container.network_ip or container.hostname}")

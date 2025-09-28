@@ -471,6 +471,118 @@ class ProxmoxService:
                 return max_vmid + 1
             return 100  # Start from 100 if no containers
 
+    def exec_container_command(self, node_name: str, vmid: int, command: str) -> Tuple[bool, str]:
+        """Execute a command in a container via pct exec.
+
+        Args:
+            node_name: Node where container resides
+            vmid: Container ID
+            command: Command to execute
+
+        Returns:
+            Tuple of (success, output)
+        """
+        try:
+            # Use the pct exec API endpoint
+            result = self.client.nodes(node_name).lxc(vmid).exec.post(command=command)
+            return True, result
+        except Exception as e:
+            logger.error(f"Failed to execute command in container {vmid}: {e}")
+            return False, str(e)
+
+    def provision_container_via_exec(self, node_name: str, vmid: int, provisioning_config) -> bool:
+        """Provision container using pct exec commands.
+
+        Args:
+            node_name: Node where container resides
+            vmid: Container ID
+            provisioning_config: ProvisioningConfig object
+
+        Returns:
+            True if provisioning succeeded, False otherwise
+        """
+        try:
+            # Install SSH keys first
+            if provisioning_config.ssh_keys:
+                for ssh_key in provisioning_config.ssh_keys:
+                    # Create .ssh directory
+                    success, _ = self.exec_container_command(node_name, vmid, "mkdir -p /root/.ssh")
+                    if not success:
+                        logger.error("Failed to create .ssh directory")
+                        return False
+
+                    # Add SSH key
+                    success, _ = self.exec_container_command(
+                        node_name, vmid,
+                        f"echo '{ssh_key}' >> /root/.ssh/authorized_keys"
+                    )
+                    if not success:
+                        logger.error("Failed to add SSH key")
+                        return False
+
+                    # Set permissions
+                    success, _ = self.exec_container_command(node_name, vmid, "chmod 700 /root/.ssh")
+                    if not success:
+                        logger.error("Failed to set .ssh permissions")
+                        return False
+
+                    success, _ = self.exec_container_command(node_name, vmid, "chmod 600 /root/.ssh/authorized_keys")
+                    if not success:
+                        logger.error("Failed to set authorized_keys permissions")
+                        return False
+
+            # Update package lists
+            success, _ = self.exec_container_command(node_name, vmid, "apt-get update")
+            if not success:
+                logger.warning("Failed to update package lists")
+
+            # Install packages
+            if provisioning_config.packages:
+                packages_str = " ".join(provisioning_config.packages)
+                success, _ = self.exec_container_command(
+                    node_name, vmid,
+                    f"apt-get install -y {packages_str}"
+                )
+                if not success:
+                    logger.error(f"Failed to install packages: {packages_str}")
+                    return False
+
+            # Install Docker if requested
+            if provisioning_config.docker:
+                # Install Docker
+                commands = [
+                    "apt-get install -y ca-certificates curl",
+                    "install -m 0755 -d /etc/apt/keyrings",
+                    "curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc",
+                    "chmod a+r /etc/apt/keyrings/docker.asc",
+                    'echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null',
+                    "apt-get update",
+                    "apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin"
+                ]
+                for cmd in commands:
+                    success, _ = self.exec_container_command(node_name, vmid, cmd)
+                    if not success:
+                        logger.error(f"Failed to execute Docker installation command: {cmd}")
+                        return False
+
+            # Install Tailscale if configured
+            if provisioning_config.tailscale and provisioning_config.tailscale.auth_key:
+                commands = [
+                    "curl -fsSL https://tailscale.com/install.sh | sh",
+                    f"tailscale up --authkey={provisioning_config.tailscale.auth_key}"
+                ]
+                for cmd in commands:
+                    success, _ = self.exec_container_command(node_name, vmid, cmd)
+                    if not success:
+                        logger.error(f"Failed to execute Tailscale command: {cmd}")
+                        return False
+
+            return True
+
+        except Exception as e:
+            logger.error(f"Provisioning failed: {e}")
+            return False
+
 
 # Alias for backwards compatibility
 ProxmoxAPI = ProxmoxService
