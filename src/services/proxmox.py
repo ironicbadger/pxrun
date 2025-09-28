@@ -486,12 +486,8 @@ class ProxmoxService:
         import os
 
         try:
-            # Get Proxmox host from connection details
-            proxmox_host = self.auth.host.replace('https://', '').replace('http://', '')
-            if ':' in proxmox_host:
-                proxmox_host = proxmox_host.split(':')[0]
-
-            # Setup SSH connection to Proxmox host
+            # SSH to the specific Proxmox node (not the API endpoint)
+            # The node_name is the actual server we want to connect to via Tailscale SSH
             ssh = paramiko.SSHClient()
             ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 
@@ -499,8 +495,9 @@ class ProxmoxService:
             ssh_key_path = os.environ.get('SSH_KEY_PATH', '~/.ssh/id_rsa')
             ssh_key_path = os.path.expanduser(ssh_key_path)
 
+            logger.debug(f"Connecting to node {node_name} via SSH")
             ssh.connect(
-                hostname=proxmox_host,
+                hostname=node_name,  # Use the actual node name (e.g., "c137")
                 username='root',
                 key_filename=ssh_key_path if os.path.exists(ssh_key_path) else None,
                 timeout=30
@@ -540,37 +537,7 @@ class ProxmoxService:
             True if provisioning succeeded, False otherwise
         """
         try:
-            # Install SSH keys first
-            if provisioning_config.ssh_keys:
-                logger.info("Installing SSH keys...")
-                # Create .ssh directory
-                success, output = self.exec_container_command(node_name, vmid, "mkdir -p /root/.ssh")
-                if not success:
-                    logger.error(f"Failed to create .ssh directory: {output}")
-                    return False
-
-                for ssh_key in provisioning_config.ssh_keys:
-                    # Add SSH key (use printf to avoid issues with quotes)
-                    success, output = self.exec_container_command(
-                        node_name, vmid,
-                        f"printf '%s\\n' '{ssh_key}' >> /root/.ssh/authorized_keys"
-                    )
-                    if not success:
-                        logger.error(f"Failed to add SSH key: {output}")
-                        return False
-
-                # Set permissions
-                success, output = self.exec_container_command(node_name, vmid, "chmod 700 /root/.ssh")
-                if not success:
-                    logger.error(f"Failed to set .ssh permissions: {output}")
-                    return False
-
-                success, output = self.exec_container_command(node_name, vmid, "chmod 600 /root/.ssh/authorized_keys")
-                if not success:
-                    logger.error(f"Failed to set authorized_keys permissions: {output}")
-                    return False
-
-                logger.info("SSH keys installed successfully")
+            # Skip SSH key installation - Tailscale SSH handles authentication
 
             # Update package lists
             logger.info("Updating package lists...")
