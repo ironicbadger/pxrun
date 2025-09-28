@@ -3,6 +3,7 @@
 import click
 import sys
 import os
+import time
 from typing import Optional
 
 from src.services.proxmox import ProxmoxService, ProxmoxAuth
@@ -232,29 +233,78 @@ def create(ctx, config, hostname, template, node, cores, memory, storage,
             click.echo("\nRunning provisioning...")
 
             # Get container IP address
-            # For now, assume we can reach it via the IP we configured
-            # In production, we'd query Proxmox for the actual IP
+            container_ip = None
             if container.network_ip and container.network_ip != 'dhcp':
                 container_ip = container.network_ip.split('/')[0]
             else:
-                click.echo("Cannot provision container with DHCP - IP address unknown", err=True)
+                # For DHCP containers, try to get IP from Proxmox
+                click.echo("Container uses DHCP, attempting to discover IP address...")
+                try:
+                    # Wait a moment for network to come up
+                    time.sleep(5)
+                    container_status = proxmox.get_container(container.node, container.vmid)
+                    if container_status and hasattr(container_status, 'network_ip') and container_status.network_ip:
+                        container_ip = container_status.network_ip
+                        click.echo(f"Discovered container IP: {container_ip}")
+                    else:
+                        click.echo("Could not auto-discover container IP address")
+                        container_ip = click.prompt("Enter container IP address for provisioning", type=str)
+                except Exception as e:
+                    click.echo(f"Failed to discover IP: {e}")
+                    if click.confirm("Enter IP address manually for provisioning?", default=True):
+                        container_ip = click.prompt("Container IP address", type=str)
+
+            if not container_ip:
+                click.echo("Skipping provisioning - no IP address available", err=True)
                 return
+
+            # Try SSH key authentication first, then fall back to password
+            ssh_key_path = os.environ.get('SSH_KEY_PATH', '~/.ssh/id_rsa')
+            ssh_key_path = os.path.expanduser(ssh_key_path)
 
             ssh_config = SSHConfig(
                 host=container_ip,
                 username='root',
-                password='root'  # Default LXC root password, should be changed
+                key_filename=ssh_key_path if os.path.exists(ssh_key_path) else None,
+                password=None,  # Try key first
+                timeout=30,
+                retry_attempts=12,  # More retries for container startup
+                retry_delay=5
             )
 
             provisioner = SSHProvisioner(ssh_config)
+
+            click.echo(f"Attempting SSH connection to {container_ip}...")
             if provisioner.connect(wait_for_ssh=True):
+                click.echo("✓ SSH connection established")
                 if provisioner.provision(provisioning_config):
                     click.echo("✓ Provisioning completed successfully")
                 else:
                     click.echo("Warning: Some provisioning steps failed", err=True)
                 provisioner.disconnect()
             else:
-                click.echo("Warning: Could not connect via SSH for provisioning", err=True)
+                click.echo("✗ Could not establish SSH connection", err=True)
+                click.echo("\nTroubleshooting tips:")
+                click.echo("1. Ensure your SSH key is added to the ssh-agent")
+                click.echo("2. Check that the container is fully started")
+                click.echo("3. Verify network connectivity to the container")
+                click.echo(f"4. Try manual SSH: ssh root@{container_ip}")
+
+                if click.confirm("Try provisioning with password authentication?", default=False):
+                    password = click.prompt("Root password", hide_input=True)
+                    ssh_config.password = password
+                    ssh_config.key_filename = None
+
+                    provisioner = SSHProvisioner(ssh_config)
+                    if provisioner.connect(wait_for_ssh=False):
+                        click.echo("✓ SSH connection established with password")
+                        if provisioner.provision(provisioning_config):
+                            click.echo("✓ Provisioning completed successfully")
+                        else:
+                            click.echo("Warning: Some provisioning steps failed", err=True)
+                        provisioner.disconnect()
+                    else:
+                        click.echo("✗ Password authentication also failed", err=True)
 
         click.echo(f"\nContainer {container.hostname} is ready!")
         click.echo(f"Connect with: ssh root@{container.network_ip or container.hostname}")
