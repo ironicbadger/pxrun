@@ -35,8 +35,8 @@ A CLI tool to simplify LXC container lifecycle management on remote Proxmox clus
 
 ## Technical Context
 **Language/Version**: Python 3.11+ (preferred for Proxmox API integration)
-**Primary Dependencies**: proxmoxer (Proxmox API), PyYAML, SOPS, paramiko (SSH), click (CLI)
-**Storage**: YAML configuration files (individual per container), SOPS-encrypted credentials
+**Primary Dependencies**: proxmoxer (Proxmox API), PyYAML, paramiko (SSH), click (CLI), python-dotenv
+**Storage**: YAML configuration files (individual per container), .env file for credentials
 **Testing**: pytest with mock Proxmox API responses
 **Target Platform**: Linux/macOS developer machines (client), Proxmox VE 9.x clusters (server)
 **Project Type**: single - CLI tool
@@ -52,7 +52,7 @@ A CLI tool to simplify LXC container lifecycle management on remote Proxmox clus
 - [x] CLI-first design: PASS - Sequential inline prompts for SSH compatibility
 - [x] Test coverage requirement: Will implement pytest suite with mocked API calls
 - [x] Documentation completeness: Will provide comprehensive CLI docs and quickstart
-- [x] Security considerations: PASS - SOPS encryption for credentials, no credential exposure
+- [x] Security considerations: PASS - Environment variables for credentials, no credential exposure
 
 ## Project Structure
 

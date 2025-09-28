@@ -106,7 +106,7 @@ A developer working from their laptop needs to quickly create temporary LXC cont
 
 #### Security Requirements
 - **FR-026**: System MUST support API token authentication (preferred over passwords)
-- **FR-027**: System MUST encrypt stored credentials at rest using SOPS or equivalent
+- **FR-027**: System MUST NOT store credentials in configuration files (use environment variables)
 - **FR-028**: System MUST NOT expose credentials in process arguments or logs
 - **FR-029**: System MUST handle authentication token refresh appropriately
 
