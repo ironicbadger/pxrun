@@ -602,8 +602,13 @@ class ProxmoxService:
                         logger.error(f"Environment variable {env_var} not found")
                         return False
 
+                # Use the official installation script but with better error handling
                 commands = [
-                    ("Install Tailscale", "curl -fsSL https://tailscale.com/install.sh | sh"),
+                    ("Download Tailscale installer", "curl -fsSL https://tailscale.com/install.sh -o /tmp/tailscale-install.sh"),
+                    ("Make installer executable", "chmod +x /tmp/tailscale-install.sh"),
+                    ("Install Tailscale", "/tmp/tailscale-install.sh"),
+                    ("Start Tailscale daemon", "systemctl enable --now tailscaled"),
+                    ("Wait for daemon", "sleep 2"),
                     ("Connect to Tailscale", f"tailscale up --authkey={auth_key}")
                 ]
                 for description, cmd in commands:
