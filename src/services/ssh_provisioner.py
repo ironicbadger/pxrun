@@ -1,6 +1,7 @@
 """SSH provisioner for container post-creation setup."""
 
 import logging
+import os
 import time
 from typing import Optional, List, Tuple, Any
 from dataclasses import dataclass
@@ -33,14 +34,16 @@ class SSHConfig:
 class SSHProvisioner:
     """Service for provisioning containers via SSH."""
 
-    def __init__(self, ssh_config: SSHConfig):
+    def __init__(self, ssh_config: SSHConfig, container_name: Optional[str] = None):
         """Initialize SSH provisioner.
 
         Args:
             ssh_config: SSH connection configuration
+            container_name: Optional container name for context
         """
         self.config = ssh_config
         self._client: Optional[SSHClient] = None
+        self.container_name = container_name
 
     def __enter__(self):
         """Context manager entry."""
@@ -300,6 +303,32 @@ class SSHProvisioner:
         Returns:
             True if successful
         """
+        # Try to get or generate an auth key if needed
+        from src.services.tailscale import TailscaleProvisioningService
+        
+        # Always try to use a fresh auth key if we have API credentials
+        try:
+            provisioning_service = TailscaleProvisioningService()
+            container_name = getattr(self, 'container_name', None) or tailscale.hostname
+            
+            # Try to generate a fresh key (will use API if available), respecting ephemeral setting
+            auth_key = provisioning_service.get_or_generate_auth_key(container_name, ephemeral=tailscale.ephemeral)
+            
+            # Create a modified config with the fresh key
+            tailscale = TailscaleConfig(
+                auth_key=auth_key,
+                hostname=tailscale.hostname,
+                ephemeral=tailscale.ephemeral,
+                accept_routes=tailscale.accept_routes,
+                advertise_routes=tailscale.advertise_routes,
+                shields_up=tailscale.shields_up
+            )
+            logger.info("Using fresh auth key for Tailscale setup")
+        except Exception as e:
+            # Fall back to original config if generation fails
+            logger.warning(f"Could not get/generate auth key, using original config: {e}")
+            # The original config might have ${TAILSCALE_AUTH_KEY} which will be resolved in the script
+        
         # Create installation script
         install_script = ProvisioningScript(
             name="tailscale-setup",

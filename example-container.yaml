@@ -37,10 +37,25 @@ provisioning:
   # Install Docker
   docker: true
 
-  # Tailscale configuration
+  # Tailscale configuration (multiple options)
+  
+  # Option 1: Simple - Auto-generates auth key if API credentials are available
   tailscale:
-    auth_key: "${TAILSCALE_AUTH_KEY}"  # Uses TAILSCALE_AUTH_KEY from environment
-    # auth_key: "tskey-auth-..."  # Or specify directly
+    provision: true
+    ephemeral: false  # Set to true for one-time use containers
+
+  # Option 2: With custom settings and auto-generated key
+  # tailscale:
+  #   hostname: "my-container"  # Optional custom hostname
+  #   accept_routes: true        # Optional route settings
+  
+  # Option 3: Explicit auth key from environment (fallback if no API creds)
+  # tailscale:
+  #   auth_key: "${TAILSCALE_AUTH_KEY}"  # Uses env var
+  
+  # Option 4: Hardcoded auth key (not recommended)
+  # tailscale:
+  #   auth_key: "tskey-auth-..."
 
   # Custom scripts (optional)
   # scripts:

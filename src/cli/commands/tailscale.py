@@ -1,18 +1,27 @@
-"""List Tailscale nodes command."""
+"""Tailscale management commands."""
 
 import click
 import sys
+import json
 from tabulate import tabulate
 from datetime import datetime
+from typing import Optional
 
 from src.services.tailscale import TailscaleAPIClient
 
 
-@click.command('list-tailscale-nodes')
+@click.group('tailscale')
+@click.pass_context
+def tailscale(ctx):
+    """Manage Tailscale nodes and configuration."""
+    pass
+
+
+@tailscale.command('list-nodes')
 @click.option('--format', '-f', type=click.Choice(['table', 'json', 'csv']), default='table', help='Output format')
 @click.option('--online-only', is_flag=True, help='Show only online nodes')
 @click.pass_context
-def list_tailscale_nodes(ctx, format, online_only):
+def list_nodes(ctx, format, online_only):
     """List all nodes in the Tailnet.
     
     Requires TAILSCALE_API_KEY and TAILSCALE_TAILNET environment variables.
@@ -118,6 +127,93 @@ def list_tailscale_nodes(ctx, format, online_only):
                 online_count = sum(1 for n in nodes if n.online)
                 click.echo(f"Online: {online_count}, Offline: {len(nodes) - online_count}")
     
+    except ValueError as e:
+        click.echo(f"Configuration error: {e}", err=True)
+        click.echo("\nPlease ensure the following environment variables are set:", err=True)
+        click.echo("  - TAILSCALE_API_KEY: Your Tailscale API key", err=True)
+        click.echo("  - TAILSCALE_TAILNET: Your Tailnet organization", err=True)
+        sys.exit(1)
+        
+    except Exception as e:
+        if ctx.obj.get('DEBUG'):
+            raise
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+
+
+@tailscale.command('generate-key')
+@click.option('--description', '-d', default='pxrun generated key', help='Description for the auth key')
+@click.option('--reusable', is_flag=True, help='Allow key to be used multiple times')
+@click.option('--ephemeral/--permanent', default=True, help='Make devices ephemeral (default: ephemeral)')
+@click.option('--preauthorized/--no-preauthorized', default=True, help='Pre-authorize devices (default: yes)')
+@click.option('--expires', '-e', type=int, default=3600, help='Expiration time in seconds (default: 3600)')
+@click.option('--tags', '-t', multiple=True, help='Tags to apply to devices (can be specified multiple times)')
+@click.option('--format', '-f', type=click.Choice(['text', 'json']), default='text', help='Output format')
+@click.pass_context
+def generate_key(ctx, description, reusable, ephemeral, preauthorized, expires, tags, format):
+    """Generate a new Tailscale auth key.
+    
+    This command creates a new authentication key that can be used to add
+    devices to your Tailnet. By default, keys are ephemeral, single-use,
+    and expire in 1 hour.
+    
+    Examples:
+        # Generate a single-use ephemeral key
+        pxrun tailscale generate-key
+        
+        # Generate a reusable key for development
+        pxrun tailscale generate-key --reusable --expires 86400
+        
+        # Generate a key with tags
+        pxrun tailscale generate-key --tags tag:server --tags tag:prod
+    
+    Requires TAILSCALE_API_KEY and TAILSCALE_TAILNET environment variables.
+    """
+    try:
+        # Initialize API client
+        client = TailscaleAPIClient()
+        
+        # Convert tags tuple to list if provided
+        tags_list = list(tags) if tags else None
+        
+        # Create the auth key
+        auth_key = client.create_auth_key(
+            description=description,
+            reusable=reusable,
+            ephemeral=ephemeral,
+            preauthorized=preauthorized,
+            expiry_seconds=expires,
+            tags=tags_list
+        )
+        
+        if not auth_key:
+            click.echo("Failed to generate auth key", err=True)
+            sys.exit(1)
+        
+        if format == 'json':
+            output = {
+                'key': auth_key,
+                'description': description,
+                'reusable': reusable,
+                'ephemeral': ephemeral,
+                'preauthorized': preauthorized,
+                'expiry_seconds': expires,
+                'tags': tags_list or []
+            }
+            click.echo(json.dumps(output, indent=2))
+        else:
+            click.echo(f"\nGenerated Tailscale auth key:")
+            click.echo(f"\n{auth_key}\n")
+            click.echo(f"Properties:")
+            click.echo(f"  Description: {description}")
+            click.echo(f"  Reusable: {'Yes' if reusable else 'No'}")
+            click.echo(f"  Ephemeral: {'Yes' if ephemeral else 'No'}")
+            click.echo(f"  Pre-authorized: {'Yes' if preauthorized else 'No'}")
+            click.echo(f"  Expires in: {expires} seconds")
+            if tags_list:
+                click.echo(f"  Tags: {', '.join(tags_list)}")
+            click.echo("\nStore this key securely. It will not be shown again.")
+            
     except ValueError as e:
         click.echo(f"Configuration error: {e}", err=True)
         click.echo("\nPlease ensure the following environment variables are set:", err=True)

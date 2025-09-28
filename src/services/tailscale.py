@@ -176,6 +176,78 @@ class TailscaleAPIClient:
             logger.error(f"Failed to get node {node_id}: {e}")
             return None
     
+    def create_auth_key(
+        self,
+        description: str = "pxrun generated key",
+        reusable: bool = False,
+        ephemeral: bool = True,
+        preauthorized: bool = True,
+        expiry_seconds: int = 3600,
+        tags: Optional[List[str]] = None
+    ) -> Optional[str]:
+        """Create a new Tailscale auth key.
+        
+        Args:
+            description: Description for the auth key
+            reusable: Whether the key can be used multiple times
+            ephemeral: Whether devices using this key are ephemeral
+            preauthorized: Whether devices are pre-authorized
+            expiry_seconds: Key expiration time in seconds (default: 1 hour)
+            tags: Tags to apply to devices using this key
+            
+        Returns:
+            The auth key string if successful, None otherwise
+            
+        Raises:
+            requests.RequestException: If API request fails
+        """
+        url = f"{self.BASE_URL}/tailnet/{self.tailnet}/keys"
+        
+        # Build request body
+        body = {
+            "description": description,
+            "capabilities": {
+                "devices": {
+                    "create": {
+                        "reusable": reusable,
+                        "ephemeral": ephemeral,
+                        "preauthorized": preauthorized
+                    }
+                }
+            },
+            "expirySeconds": expiry_seconds
+        }
+        
+        # Add tags if provided
+        if tags:
+            body["capabilities"]["devices"]["create"]["tags"] = tags
+            
+        try:
+            response = requests.post(
+                url,
+                json=body,
+                headers=self.headers,
+                timeout=30
+            )
+            response.raise_for_status()
+            
+            result = response.json()
+            auth_key = result.get("key")
+            
+            if auth_key:
+                logger.info(f"Successfully created auth key: {description}")
+                logger.debug(f"Key properties: reusable={reusable}, ephemeral={ephemeral}, expires_in={expiry_seconds}s")
+                return auth_key
+            else:
+                logger.error("API response did not contain auth key")
+                return None
+                
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Failed to create auth key: {e}")
+            if hasattr(e, 'response') and e.response is not None:
+                logger.error(f"Response: {e.response.text}")
+            raise
+    
     def delete_node(self, node_id: str) -> bool:
         """Delete a node from the Tailnet.
         
@@ -254,12 +326,123 @@ class TailscaleAPIClient:
 class TailscaleProvisioningService:
     """Service for provisioning Tailscale on containers via SSH."""
     
-    def __init__(self):
-        """Initialize the provisioning service."""
-        pass
+    def __init__(self, api_client: Optional[TailscaleAPIClient] = None):
+        """Initialize the provisioning service.
+        
+        Args:
+            api_client: Optional TailscaleAPIClient instance for auth key generation
+        """
+        self.api_client = api_client
+    
+    def get_or_generate_auth_key(self, container_name: Optional[str] = None, always_generate: bool = False, ephemeral: bool = False) -> str:
+        """Get Tailscale auth key from environment or generate a new one.
+        
+        This method first attempts to use the TAILSCALE_AUTH_KEY from environment.
+        If the key is expired, invalid, or not set, it will attempt to generate
+        a new ephemeral key using the Tailscale API.
+        
+        Args:
+            container_name: Optional name for the container (used in key description)
+            always_generate: If True, always generate a new key (ignore env)
+            ephemeral: Whether the node should be ephemeral (default: False)
+            
+        Returns:
+            Tailscale auth key (either from env or newly generated)
+            
+        Raises:
+            TailscaleConfigError: If unable to get or generate a valid auth key
+        """
+        from src.exceptions import TailscaleConfigError
+        
+        # Check if we have an API client configured (need API key and tailnet)
+        can_generate = bool(os.getenv('TAILSCALE_API_KEY')) and bool(os.getenv('TAILSCALE_TAILNET'))
+        
+        # If always_generate is set and we can generate, do it
+        if always_generate and can_generate:
+            logger.info(f"Generating new {'ephemeral' if ephemeral else 'persistent'} auth key via API...")
+            return self._generate_new_auth_key(container_name, ephemeral=ephemeral)
+        
+        # Try to get auth key from environment
+        env_auth_key = os.getenv('TAILSCALE_AUTH_KEY')
+        
+        if env_auth_key and not always_generate:
+            # For now, we'll assume if API credentials are available, we should generate
+            # a new key rather than use a potentially expired one from env
+            # This is because auth keys are typically single-use or have short expiry
+            if can_generate:
+                logger.info(f"API credentials available, generating fresh {'ephemeral' if ephemeral else 'persistent'} auth key instead of using env key...")
+                return self._generate_new_auth_key(container_name, ephemeral=ephemeral)
+            else:
+                # No API credentials, have to use env key and hope it works
+                logger.warning("Using TAILSCALE_AUTH_KEY from environment (cannot verify if valid)")
+                return env_auth_key
+        
+        # No env key found, try to generate one
+        if can_generate:
+            logger.info(f"No TAILSCALE_AUTH_KEY found, generating new {'ephemeral' if ephemeral else 'persistent'} key via API...")
+            return self._generate_new_auth_key(container_name, ephemeral=ephemeral)
+        
+        # Can't get or generate a key
+        raise TailscaleConfigError(
+            "No TAILSCALE_AUTH_KEY set and cannot generate one "
+            "(need TAILSCALE_API_KEY and TAILSCALE_TAILNET for auto-generation)"
+        )
+    
+    def _generate_new_auth_key(self, container_name: Optional[str] = None, ephemeral: bool = False) -> str:
+        """Generate a new auth key for container provisioning.
+        
+        Args:
+            container_name: Optional container name for the key description
+            ephemeral: Whether to create an ephemeral key (default: False)
+            
+        Returns:
+            Generated auth key
+            
+        Raises:
+            TailscaleConfigError: If generation fails
+        """
+        from src.exceptions import TailscaleConfigError
+        import re
+        
+        try:
+            # Initialize API client if not already done
+            if not self.api_client:
+                self.api_client = TailscaleAPIClient()
+            
+            # Generate description for the key - sanitize container name
+            # Tailscale API only allows alphanumeric, spaces, dashes, and underscores
+            if container_name:
+                # Replace any invalid characters with dashes
+                safe_name = re.sub(r'[^a-zA-Z0-9\s\-_]', '-', container_name)
+                # Remove multiple consecutive dashes
+                safe_name = re.sub(r'-+', '-', safe_name).strip('-')
+                description = f"pxrun container {safe_name}"
+            else:
+                description = "pxrun auto-generated key"
+            
+            logger.debug(f"Generating auth key with description: '{description}'")
+            
+            # Generate single-use, pre-authorized key with configurable ephemeral setting
+            auth_key = self.api_client.create_auth_key(
+                description=description,
+                reusable=False,  # Single use
+                ephemeral=ephemeral,  # Configurable: ephemeral or persistent
+                preauthorized=True,  # Auto-approve
+                expiry_seconds=7200,  # 2 hours (enough for provisioning)
+                tags=None  # Could be enhanced to add tags based on config
+            )
+            
+            if auth_key:
+                logger.info(f"Successfully generated new Tailscale auth key for {container_name or 'container'}")
+                return auth_key
+            else:
+                raise TailscaleConfigError("Failed to generate auth key via API")
+                
+        except Exception as e:
+            raise TailscaleConfigError(f"Failed to generate auth key: {e}")
     
     def get_auth_key(self) -> str:
-        """Get Tailscale auth key from environment.
+        """Get Tailscale auth key from environment (backward compatibility).
         
         Returns:
             Tailscale auth key

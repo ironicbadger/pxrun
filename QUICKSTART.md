@@ -97,18 +97,24 @@ python3 -m src.cli destroy 120 --force
 python3 -m src.cli destroy 120 --no-remove-tailscale-node
 ```
 
-### 4. List Tailscale Nodes
+### 4. Manage Tailscale
 
 ```bash
 # List all nodes in your Tailnet
-python3 -m src.cli list-tailscale-nodes
+python3 -m src.cli tailscale list-nodes
 
 # Show only online nodes
-python3 -m src.cli list-tailscale-nodes --online-only
+python3 -m src.cli tailscale list-nodes --online-only
 
 # Output in different formats
-python3 -m src.cli list-tailscale-nodes --format json
-python3 -m src.cli list-tailscale-nodes --format csv
+python3 -m src.cli tailscale list-nodes --format json
+python3 -m src.cli tailscale list-nodes --format csv
+
+# Generate auth keys (requires API credentials)
+python3 -m src.cli tailscale generate-key
+
+# Generate a reusable key with custom expiry
+python3 -m src.cli tailscale generate-key --reusable --expires 86400
 ```
 
 ### 5. Export Container Configuration
@@ -177,45 +183,70 @@ provisioning:
     - git
     - vim
   docker: true
-  tailscale:
-    auth_key: ${TAILSCALE_AUTH_KEY}  # From .env
-    hostname: dev-container
+  tailscale: true  # Simplest: auto-generates auth key
+  # Or with options:
+  # tailscale:
+  #   hostname: dev-container
+  #   ephemeral: false  # Persistent node (default)
   ssh_keys:
     - ssh-rsa AAAAB3... user@host
 ```
 
 ## Tailscale Integration
 
-pxrun includes built-in Tailscale integration for VPN connectivity:
+pxrun includes advanced Tailscale integration with automatic auth key generation:
 
-### Setup
+### Setup (Recommended)
 
 Add these to your `.env` file:
 
 ```env
-# For installing Tailscale in containers
-TAILSCALE_AUTH_KEY=tskey-auth-xxxxx
-
-# For managing Tailscale nodes
+# API credentials for automatic auth key generation
 TAILSCALE_API_KEY=tskey-api-xxxxx
 TAILSCALE_TAILNET=your-org.ts.net
+
+# Optional: Fallback auth key (often expired)
+# TAILSCALE_AUTH_KEY=tskey-auth-xxxxx
+```
+
+With API credentials, pxrun will:
+- **Auto-generate fresh auth keys** for each container
+- **Skip expired keys** in your .env file  
+- **Create persistent nodes** by default (survive reboots)
+
+### Setup (Legacy)
+
+If you only have an auth key:
+
+```env
+# Manual auth key (expires, single-use)
+TAILSCALE_AUTH_KEY=tskey-auth-xxxxx
 ```
 
 ### Features
 
+- **Automatic Auth Key Generation**: Fresh keys for each container (with API credentials)
+- **Smart Key Management**: Detects and skips expired keys automatically
+- **Persistent vs Ephemeral**: Configure node persistence (default: persistent)
 - **Automatic Provisioning**: Install and configure Tailscale during container creation
 - **Node Management**: List all Tailscale nodes in your tailnet
 - **Smart Cleanup**: Automatically detect and remove Tailscale nodes when destroying containers
-- **FQDN Matching**: Intelligently matches container names to Tailscale nodes (e.g., `container` matches `container.tailnet.ts.net`)
+- **FQDN Matching**: Intelligently matches container names to Tailscale nodes
 
 ### Example
 
 ```bash
-# Create container with Tailscale
-python3 -m src.cli create  # Select Tailscale option during provisioning
+# Create container with Tailscale (auto-generates key)
+python3 -m src.cli create --provision tailscale
+
+# Or from YAML with simple config:
+# tailscale: true
+
+# Generate auth keys manually
+python3 -m src.cli tailscale generate-key
 
 # List Tailscale nodes
-python3 -m src.cli list-tailscale-nodes
+python3 -m src.cli tailscale list-nodes
 
 # Destroy container and Tailscale node
 python3 -m src.cli destroy 100  # Will prompt to remove Tailscale node

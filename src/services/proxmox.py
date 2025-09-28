@@ -823,18 +823,41 @@ class ProxmoxService:
                 self._print_stage("Installing Docker", "success")
 
             # Install Tailscale if configured
-            if provisioning_config.tailscale and provisioning_config.tailscale.auth_key:
+            if provisioning_config.tailscale:
                 self._print_stage("Installing Tailscale", "running")
 
-                # Resolve environment variable if needed
-                auth_key = provisioning_config.tailscale.auth_key
-                if auth_key.startswith("${") and auth_key.endswith("}"):
-                    env_var = auth_key[2:-1]
-                    auth_key = os.environ.get(env_var, "")
+                # Try to get or generate an auth key
+                from src.services.tailscale import TailscaleProvisioningService
+                
+                try:
+                    provisioning_service = TailscaleProvisioningService()
+                    # Try to get container hostname for the key description
+                    container_name = provisioning_config.tailscale.hostname or f"container-{vmid}"
+                    
+                    # Always try to generate a fresh key if API is available, respecting ephemeral setting
+                    ephemeral = provisioning_config.tailscale.ephemeral
+                    auth_key = provisioning_service.get_or_generate_auth_key(container_name, ephemeral=ephemeral)
+                    
                     if not auth_key:
                         self._print_stage("Installing Tailscale", "error")
-                        print(f"   Error: Environment variable {env_var} not found")
+                        print(f"   Error: Could not obtain Tailscale auth key")
                         return False
+                        
+                except Exception as e:
+                    # Fall back to resolving from environment if present
+                    auth_key = provisioning_config.tailscale.auth_key
+                    if auth_key.startswith("${") and auth_key.endswith("}"):
+                        env_var = auth_key[2:-1]
+                        auth_key = os.environ.get(env_var, "")
+                    
+                    if not auth_key:
+                        self._print_stage("Installing Tailscale", "error")
+                        print(f"   Error: Failed to get auth key: {e}")
+                        return False
+                    
+                    # Log that we're using fallback
+                    if verbose:
+                        print(f"   • Using fallback auth key from config/env")
 
                 # Use the official installation script but with better error handling
                 commands = [

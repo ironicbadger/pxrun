@@ -12,6 +12,7 @@ class TailscaleConfig:
     Attributes:
         auth_key: Authentication key (encrypted)
         hostname: Tailscale hostname (optional)
+        ephemeral: Whether the node should be ephemeral (removed on disconnect)
         accept_routes: Accept advertised routes
         advertise_routes: Routes to advertise
         shields_up: Block incoming connections
@@ -19,6 +20,7 @@ class TailscaleConfig:
 
     auth_key: str
     hostname: Optional[str] = None
+    ephemeral: bool = False  # Default to persistent for containers
     accept_routes: bool = False
     advertise_routes: List[str] = field(default_factory=list)
     shields_up: bool = False
@@ -215,12 +217,21 @@ class TailscaleConfig:
         Returns:
             TailscaleConfig instance
         """
+        # If just 'true' or has 'provision: true', enable with auto-generated key
+        if data is True or (isinstance(data, dict) and data.get('provision') is True):
+            # Use placeholder that will trigger auto-generation
+            auth_key = data.get('auth_key', '${TAILSCALE_AUTH_KEY}') if isinstance(data, dict) else '${TAILSCALE_AUTH_KEY}'
+        else:
+            # Standard parsing
+            auth_key = data.get('auth_key', '${TAILSCALE_AUTH_KEY}')
+        
         return cls(
-            auth_key=data.get('auth_key', ''),
-            hostname=data.get('hostname'),
-            accept_routes=data.get('accept_routes', False),
-            advertise_routes=data.get('advertise_routes', []),
-            shields_up=data.get('shields_up', False)
+            auth_key=auth_key,
+            hostname=data.get('hostname') if isinstance(data, dict) else None,
+            ephemeral=data.get('ephemeral', False) if isinstance(data, dict) else False,  # Default to persistent
+            accept_routes=data.get('accept_routes', False) if isinstance(data, dict) else False,
+            advertise_routes=data.get('advertise_routes', []) if isinstance(data, dict) else [],
+            shields_up=data.get('shields_up', False) if isinstance(data, dict) else False
         )
 
     def to_dict(self) -> dict:
@@ -243,6 +254,7 @@ class TailscaleConfig:
         return {
             'auth_key': masked_key,
             'hostname': self.hostname,
+            'ephemeral': self.ephemeral,
             'accept_routes': self.accept_routes,
             'advertise_routes': self.advertise_routes,
             'shields_up': self.shields_up

@@ -69,14 +69,20 @@ pxrun destroy <vmid>
 pxrun destroy <vmid> --no-remove-tailscale-node
 ```
 
-### 5. List Tailscale nodes
+### 5. Manage Tailscale
 
 ```bash
-pxrun list-tailscale-nodes
+# List nodes in your Tailnet
+pxrun tailscale list-nodes
 # Show only online nodes
-pxrun list-tailscale-nodes --online-only
+pxrun tailscale list-nodes --online-only
 # Output in different formats
-pxrun list-tailscale-nodes --format json
+pxrun tailscale list-nodes --format json
+
+# Generate auth keys (requires API credentials)
+pxrun tailscale generate-key
+# Generate reusable key
+pxrun tailscale generate-key --reusable --expires 86400
 ```
 
 ## Configuration
@@ -92,9 +98,9 @@ PROXMOX_TOKEN_ID=user@pve!pxrun
 PROXMOX_TOKEN_SECRET=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
 
 # Tailscale Configuration (optional)
-TAILSCALE_AUTH_KEY=tskey-auth-xxxxx  # For container provisioning
-TAILSCALE_API_KEY=tskey-api-xxxxx    # For node management
+TAILSCALE_API_KEY=tskey-api-xxxxx    # For auth key generation & node management
 TAILSCALE_TAILNET=your-org.ts.net    # Your tailnet domain
+TAILSCALE_AUTH_KEY=tskey-auth-xxxxx  # Fallback if API not configured (often expired)
 ```
 
 ### Container Configuration
@@ -120,9 +126,11 @@ provisioning:
     - nginx
     - git
   docker: true
-  tailscale:
-    auth_key: ${TAILSCALE_AUTH_KEY}
-    hostname: dev-web-1
+  tailscale: true  # Auto-generates auth key if API configured
+  # Or with options:
+  # tailscale:
+  #   hostname: dev-web-1
+  #   ephemeral: false  # Persistent node (default)
 ```
 
 ## Tailscale Integration
@@ -131,8 +139,11 @@ pxrun provides deep integration with Tailscale for VPN connectivity and node man
 
 ### Features
 
+- **Automatic Auth Key Generation**: Generates fresh, ephemeral auth keys for each container when API credentials are configured
+- **Smart Key Management**: Automatically detects expired keys and generates new ones
+- **Persistent vs Ephemeral Nodes**: Configure whether nodes persist across reboots (default: persistent for containers)
 - **Automatic Node Detection**: When destroying containers, pxrun automatically detects associated Tailscale nodes
-- **Smart Matching**: Matches container hostnames to Tailscale nodes, including FQDN matching (e.g., `container` matches `container.tailnet.ts.net`)
+- **Smart Matching**: Matches container hostnames to Tailscale nodes, including FQDN matching
 - **Safe Removal**: Prompts for confirmation before removing nodes from your Tailnet
 - **Node Management**: List and manage Tailscale nodes directly from pxrun
 
@@ -141,22 +152,34 @@ pxrun provides deep integration with Tailscale for VPN connectivity and node man
 Set the following environment variables in your `.env` file:
 
 ```env
-# For container provisioning (installs Tailscale in new containers)
-TAILSCALE_AUTH_KEY=tskey-auth-xxxxx
-
-# For node management (required for list-tailscale-nodes and auto-removal)
+# Recommended: API credentials for automatic auth key generation
 TAILSCALE_API_KEY=tskey-api-xxxxx
 TAILSCALE_TAILNET=your-org.ts.net
+
+# Optional: Fallback auth key (often expired, API is preferred)
+TAILSCALE_AUTH_KEY=tskey-auth-xxxxx
 ```
+
+With API credentials configured, pxrun will:
+- Automatically generate fresh auth keys for each container
+- Skip expired keys in your .env file
+- Create persistent nodes by default (survive container reboots)
 
 ### Usage
 
 ```bash
-# Create container with Tailscale
-pxrun create  # Select Tailscale option during provisioning
+# Create container with Tailscale (auto-generates auth key)
+pxrun create --provision tailscale
+
+# Or from YAML with simple config
+# tailscale: true  # Uses auto-generated key
 
 # List all Tailscale nodes
-pxrun list-tailscale-nodes
+pxrun tailscale list-nodes
+
+# Generate auth keys manually
+pxrun tailscale generate-key
+pxrun tailscale generate-key --reusable --expires 86400
 
 # Destroy container and remove Tailscale node
 pxrun destroy 100  # Prompts for Tailscale node removal

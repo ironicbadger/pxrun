@@ -186,8 +186,28 @@ def create(ctx, config, hostname, template, node, cores, memory, storage,
                         provisioning_config.docker = prov_opts.get('docker', False)
                         if 'tailscale' in prov_opts:
                             from src.models.tailscale import TailscaleConfig
+                            from src.services.tailscale import TailscaleProvisioningService
+                            
+                            # Get auth key from config or generate one
+                            auth_key = prov_opts['tailscale'].get('auth_key')
+                            
+                            # If no auth key provided or it's a reference to env var, try auto-generation
+                            if not auth_key or auth_key.startswith('${'):
+                                try:
+                                    provisioning_service = TailscaleProvisioningService()
+                                    generated_key = provisioning_service.get_or_generate_auth_key(container.hostname)
+                                    # Use generated key if we got one
+                                    if generated_key:
+                                        auth_key = generated_key
+                                        click.echo("  Using auto-generated Tailscale auth key")
+                                except Exception as e:
+                                    # Fall back to the original auth key (might be env var reference)
+                                    if not auth_key:
+                                        auth_key = '${TAILSCALE_AUTH_KEY}'  # Default to env var
+                                    logger.debug(f"Auth key generation failed, using fallback: {e}")
+                            
                             provisioning_config.tailscale = TailscaleConfig(
-                                auth_key=prov_opts['tailscale']['auth_key']
+                                auth_key=auth_key
                             )
 
         # Display configuration

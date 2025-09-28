@@ -9,9 +9,9 @@ from src.cli import __version__
 from src.cli.commands.create import create
 from src.cli.commands.destroy import destroy
 from src.cli.commands.list import list_containers
-from src.cli.commands.list_tailscale import list_tailscale_nodes
 from src.cli.commands.save_config import save_config
 from src.cli.commands.setup import setup
+from src.cli.commands.tailscale import tailscale
 
 
 @click.group()
@@ -44,9 +44,9 @@ def cli(ctx, debug):
 cli.add_command(create)
 cli.add_command(destroy)
 cli.add_command(list_containers)
-cli.add_command(list_tailscale_nodes)
 cli.add_command(save_config)
 cli.add_command(setup)
+cli.add_command(tailscale)
 
 
 def main():
