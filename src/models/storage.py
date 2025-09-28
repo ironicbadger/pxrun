@@ -42,7 +42,7 @@ class StoragePool:
 
         # Validate storage type
         valid_types = [
-            "directory", "lvm", "lvmthin", "zfs", "zfspool",
+            "dir", "directory", "lvm", "lvmthin", "zfs", "zfspool",
             "nfs", "cifs", "glusterfs", "iscsi", "iscsidirect",
             "rbd", "cephfs"
         ]
@@ -181,7 +181,7 @@ class StoragePool:
         Returns:
             True if local storage, False otherwise
         """
-        return self.type in ["directory", "lvm", "lvmthin", "zfs", "zfspool"]
+        return self.type in ["dir", "directory", "lvm", "lvmthin", "zfs", "zfspool"]
 
     @classmethod
     def from_api_response(cls, data: dict) -> 'StoragePool':

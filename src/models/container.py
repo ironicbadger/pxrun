@@ -184,16 +184,22 @@ class Container:
         return params
 
     @classmethod
-    def from_api_response(cls, data: Dict[str, Any], node: str) -> 'Container':
+    def from_api_response(cls, data: Dict[str, Any], node: str, vmid: int = None) -> 'Container':
         """Create Container instance from Proxmox API response.
 
         Args:
             data: API response data
             node: Node name where container resides
+            vmid: Container ID (if not in data)
 
         Returns:
             Container instance
         """
+        # Get VMID from data or parameter
+        container_vmid = data.get('vmid', vmid)
+        if not container_vmid:
+            raise ValueError("VMID not provided")
+
         # Parse rootfs to get storage info
         rootfs = data.get('rootfs', 'local-lvm:10')
         storage_parts = rootfs.split(':')
@@ -228,8 +234,8 @@ class Container:
                     features[key] = value == '1'
 
         return cls(
-            vmid=data['vmid'],
-            hostname=data.get('hostname', f"ct{data['vmid']}"),
+            vmid=container_vmid,
+            hostname=data.get('hostname', f"ct{container_vmid}"),
             template=data.get('ostemplate', ''),
             node=node,
             cores=data.get('cores', 2),
