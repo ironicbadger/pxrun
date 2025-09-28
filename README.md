@@ -1,24 +1,20 @@
 # pxrun - Proxmox LXC Lifecycle Management Tool
 
-[![CI/CD Pipeline](https://github.com/yourusername/pxrun/actions/workflows/ci.yml/badge.svg)](https://github.com/yourusername/pxrun/actions/workflows/ci.yml)
-[![Python Version](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/downloads/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-
 A CLI tool to simplify LXC container lifecycle management on remote Proxmox clusters.
 
 ![create](create.png)
 
 ## Features
 
-- 🚀 **Quick Container Creation**: Create containers with < 6 prompts in under 60 seconds
-- 📝 **YAML Configuration**: Save and reuse container configurations
-- 🔒 **Secure Credentials**: SOPS encryption for sensitive data
-- 🐳 **Docker Support**: Automatic Docker installation and setup
-- 🔗 **Tailscale Integration**: Built-in VPN configuration and automatic node management
-- 🎮 **Hardware Acceleration**: Support for device passthrough (Intel QSV)
-- 📁 **Mount Points**: Easy host directory sharing
-- 🔄 **Stateless Operation**: Always queries Proxmox for current state
-- 🗑️ **Smart Cleanup**: Automatically detects and removes associated Tailscale nodes on container destruction
+- **Quick Container Creation**: Create containers with < 6 prompts in under 60 seconds
+- **YAML Configuration**: Save and reuse container configurations
+- **Secure Credentials**: SOPS encryption for sensitive data
+- **Docker Support**: Automatic Docker installation and setup
+- **Tailscale Integration**: Built-in VPN configuration and automatic node management
+- **Stateless Operation**: Always queries Proxmox for current state
+- **Smart Cleanup**: Automatically detects and removes associated Tailscale nodes on container destruction
+- ~~**Hardware Acceleration**: Support for device passthrough (Intel QSV)~~ not yet
+- ~~**Mount Points**: Easy host directory sharing~~ not yet
 
 ## Installation
 
