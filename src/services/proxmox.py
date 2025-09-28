@@ -581,9 +581,19 @@ class ProxmoxService:
             # Install Tailscale if configured
             if provisioning_config.tailscale and provisioning_config.tailscale.auth_key:
                 logger.info("Installing Tailscale...")
+
+                # Resolve environment variable if needed
+                auth_key = provisioning_config.tailscale.auth_key
+                if auth_key.startswith("${") and auth_key.endswith("}"):
+                    env_var = auth_key[2:-1]
+                    auth_key = os.environ.get(env_var, "")
+                    if not auth_key:
+                        logger.error(f"Environment variable {env_var} not found")
+                        return False
+
                 commands = [
                     ("Install Tailscale", "curl -fsSL https://tailscale.com/install.sh | sh"),
-                    ("Connect to Tailscale", f"tailscale up --authkey={provisioning_config.tailscale.auth_key}")
+                    ("Connect to Tailscale", f"tailscale up --authkey={auth_key}")
                 ]
                 for description, cmd in commands:
                     logger.debug(f"Tailscale: {description}")

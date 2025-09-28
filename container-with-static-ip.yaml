@@ -1,0 +1,52 @@
+# Example container with static IP and more options
+
+container:
+  hostname: production-app
+  node: c137
+  template: "c137-isos:vztmpl/debian-13-standard_13.1-1_amd64.tar.zst"
+
+  # Resources
+  cores: 4
+  memory: 2048  # MB
+  storage: 20   # GB
+  storage_pool: nvmeu2-vmstore
+
+  # Static network configuration
+  network_bridge: vmbr0
+  network_ip: "192.168.1.100/24"
+  network_gateway: "192.168.1.1"
+
+  # Container options
+  start_on_boot: true
+
+# Comprehensive provisioning
+provisioning:
+  # Additional packages
+  packages:
+    - htop
+    - vim
+    - curl
+    - git
+    - nginx
+
+  # Install Docker
+  docker: true
+
+  # Tailscale configuration
+  tailscale:
+    auth_key: "${TAILSCALE_AUTH_KEY}"  # Uses TAILSCALE_AUTH_KEY from environment
+
+  # Custom setup scripts
+  scripts:
+    - name: "nginx-setup"
+      content: |
+        #!/bin/bash
+        systemctl enable nginx
+        systemctl start nginx
+        echo "Welcome to my container" > /var/www/html/index.html
+
+    - name: "user-setup"
+      content: |
+        #!/bin/bash
+        useradd -m -s /bin/bash deploy
+        usermod -aG docker deploy
