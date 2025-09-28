@@ -3,7 +3,12 @@
 
 import sys
 import logging
+import warnings
 import click
+
+# Suppress SSL warning for macOS system Python
+import urllib3
+warnings.filterwarnings('ignore', category=urllib3.exceptions.NotOpenSSLWarning)
 
 from src.cli import __version__
 from src.cli.commands.create import create

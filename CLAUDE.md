@@ -22,3 +22,4 @@ Python 3.11+ (preferred for Proxmox API integration): Follow standard convention
 
 <!-- MANUAL ADDITIONS START -->
 <!-- MANUAL ADDITIONS END -->
+- use python3 not python
