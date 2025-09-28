@@ -18,7 +18,13 @@ A CLI tool to simplify LXC container lifecycle management on remote Proxmox clus
 
 ## Installation
 
-### Via pip (recommended)
+### Via uv (fastest)
+
+```bash
+uv pip install pxrun
+```
+
+### Via pip (traditional)
 
 ```bash
 pip install pxrun
@@ -29,6 +35,9 @@ pip install pxrun
 ```bash
 git clone https://github.com/yourusername/pxrun.git
 cd pxrun
+# Using uv (recommended, 10-100x faster)
+uv pip install -e .
+# Or using pip
 pip install -e .
 ```
 
