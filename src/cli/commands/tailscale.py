@@ -3,11 +3,13 @@
 import click
 import sys
 import json
+import subprocess
 from tabulate import tabulate
 from datetime import datetime
 from typing import Optional
 
 from src.services.tailscale import TailscaleAPIClient
+from src.utils import output
 
 
 @click.group('tailscale')
@@ -225,4 +227,54 @@ def generate_key(ctx, description, reusable, ephemeral, preauthorized, expires, 
         if ctx.obj.get('DEBUG'):
             raise
         click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+
+
+@tailscale.command("refresh")
+@click.pass_context
+def refresh(ctx):
+    """Refresh local Tailscale connection.
+    
+    Performs 'tailscale down' followed by 'tailscale up' to quickly
+    refresh the local machine's connection to the Tailnet.
+    
+    Example:
+        pxrun tailscale refresh
+    """
+    try:
+        # Check if tailscale is installed
+        try:
+            subprocess.run(["which", "tailscale"], check=True, capture_output=True, text=True)
+        except subprocess.CalledProcessError:
+            output.error("Tailscale is not installed on this machine")
+            output.info("Install Tailscale from: https://tailscale.com/download")
+            sys.exit(1)
+        
+        # Bring Tailscale down
+        with output.spinner("Refreshing Tailscale connection..."):
+            result = subprocess.run(
+                ["tailscale", "down"],
+                capture_output=True,
+                text=True,
+                check=False
+            )
+            
+            # Immediately bring it back up
+            result = subprocess.run(
+                ["tailscale", "up"],
+                capture_output=True,
+                text=True,
+                check=False
+            )
+            
+            if result.returncode != 0:
+                output.error(f"Failed to refresh: {result.stderr}")
+                sys.exit(1)
+                
+        output.success("Tailscale connection refreshed!")
+            
+    except Exception as e:
+        if ctx.obj.get("DEBUG"):
+            raise
+        output.error(f"Error: {e}")
         sys.exit(1)

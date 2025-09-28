@@ -4,6 +4,7 @@ import click
 import sys
 import os
 import time
+import logging
 from typing import Optional
 
 from src.services.proxmox import ProxmoxService, ProxmoxAuth
@@ -13,6 +14,10 @@ from src.services.node_selector import NodeSelector, SelectionStrategy
 from src.models.container import Container
 from src.models.provisioning import ProvisioningConfig
 from src.cli import prompts
+from src.utils import output
+
+# Suppress debug logging
+logger = logging.getLogger(__name__)
 
 
 @click.command('create')
@@ -45,16 +50,17 @@ def create(ctx, config, hostname, template, node, cores, memory, storage,
         # Initialize services
         proxmox = ProxmoxService()
 
-        if not proxmox.test_connection():
-            click.echo("Failed to connect to Proxmox server", err=True)
-            sys.exit(1)
+        with output.spinner("Connecting to Proxmox server..."):
+            if not proxmox.test_connection():
+                output.error("Failed to connect to Proxmox server")
+                sys.exit(1)
 
         # Get cluster information
         nodes = proxmox.list_nodes()
 
         # Load from config file if provided
         if config:
-            click.echo(f"Loading configuration from {config}...")
+            output.info(f"Loading configuration from {config}")
             config_mgr = ConfigManager()
             config_data = config_mgr.load_config(config)
             container = config_mgr.parse_container_config(config_data)
@@ -114,7 +120,7 @@ def create(ctx, config, hostname, template, node, cores, memory, storage,
                     node = prompts.prompt_for_node(nodes)
 
             if not node:
-                click.echo("No node selected", err=True)
+                output.error("No node selected")
                 sys.exit(1)
 
             # 2. Get hostname
@@ -126,7 +132,7 @@ def create(ctx, config, hostname, template, node, cores, memory, storage,
                 pools = proxmox.get_storage_pools(node)
                 storage_pool = prompts.prompt_for_storage_pool(pools)
                 if not storage_pool:
-                    click.echo("No storage pool selected", err=True)
+                    output.error("No storage pool selected")
                     sys.exit(1)
 
             # 4. Get templates from template storage (filtered by selected node)
@@ -135,7 +141,7 @@ def create(ctx, config, hostname, template, node, cores, memory, storage,
                 templates = proxmox.get_templates(node_name=node, storage_name=template_storage)
                 template = prompts.prompt_for_template(templates)
                 if not template:
-                    click.echo("No template selected", err=True)
+                    output.error("No template selected")
                     sys.exit(1)
 
             # Get resources if not specified
@@ -199,7 +205,7 @@ def create(ctx, config, hostname, template, node, cores, memory, storage,
                                     # Use generated key if we got one
                                     if generated_key:
                                         auth_key = generated_key
-                                        click.echo("  Using auto-generated Tailscale auth key")
+                                        output.info("Using auto-generated Tailscale auth key")
                                 except Exception as e:
                                     # Fall back to the original auth key (might be env var reference)
                                     if not auth_key:
@@ -211,97 +217,127 @@ def create(ctx, config, hostname, template, node, cores, memory, storage,
                             )
 
         # Display configuration
-        click.echo("\nContainer configuration:")
-        click.echo(f"  VMID: {container.vmid}")
-        click.echo(f"  Hostname: {container.hostname}")
-        click.echo(f"  Node: {container.node}")
-        click.echo(f"  Template: {container.template}")
-        click.echo(f"  Resources: {container.cores} cores, {container.memory} MB RAM, {container.storage} GB storage")
-        click.echo(f"  Storage pool: {container.storage_pool}")
-        click.echo(f"  Network: {container.network_bridge}, IP: {container.network_ip or 'dhcp'}")
-
+        config_dict = {
+            'vmid': container.vmid,
+            'hostname': container.hostname,
+            'node': container.node,
+            'template': container.template,
+            'cores': container.cores,
+            'memory': container.memory,
+            'storage': container.storage,
+            'storage_pool': container.storage_pool,
+            'network_bridge': container.network_bridge,
+            'network_ip': container.network_ip or 'dhcp'
+        }
+        
+        # Add provisioning config if present
+        if provisioning_config:
+            if provisioning_config.packages:
+                config_dict['packages'] = provisioning_config.packages
+            if provisioning_config.docker:
+                config_dict['docker'] = True
+            if provisioning_config.tailscale:
+                # Include tailnet org if API is configured
+                tailnet = os.environ.get('TAILSCALE_TAILNET')
+                if tailnet:
+                    config_dict['tailscale'] = {'enabled': True, 'tailnet': tailnet}
+                else:
+                    config_dict['tailscale'] = True
+        
         if dry_run:
-            click.echo("\nDry run mode - no container will be created")
+            output.container_config(config_dict)
+            output.info("Dry run mode - no container will be created")
             return
 
-        if not click.confirm("\nProceed with container creation?", default=True):
-            click.echo("Cancelled")
+        if not output.create_confirmation_prompt(config_dict):
+            output.warning("Cancelled")
             return
 
         # Create container
-        click.echo(f"\nCreating container {container.hostname}...")
-        try:
-            task_id = proxmox.create_container(container)
-            click.echo(f"Creation task started: {task_id}")
-
-            # Wait for creation to complete
-            click.echo("Waiting for container creation to complete...")
-            success, msg = proxmox.wait_for_task(container.node, task_id, timeout=120)
-
-            if not success:
-                click.echo(f"Container creation failed: {msg}", err=True)
+        output.print("")
+        with output.spinner(f"Creating container {container.hostname}...", 
+                           success_text=f"Container created successfully (VMID: {container.vmid})"):
+            try:
+                task_id = proxmox.create_container(container)
+                # Wait for creation to complete
+                success, msg = proxmox.wait_for_task(container.node, task_id, timeout=120)
+                if not success:
+                    output.error(f"Container creation failed: {msg}")
+                    sys.exit(1)
+            except ValueError as e:
+                # VMID conflict or validation error
+                output.error(f"Configuration Error: {e}")
+                output.print("\n[yellow]Suggestions:[/yellow]")
+                output.print("  • Use 'pxrun list' to see existing containers")
+                if "already exists" in str(e).lower():
+                    try:
+                        next_vmid = proxmox.get_next_vmid()
+                        output.print(f"  • Next available VMID: {next_vmid}")
+                    except:
+                        pass
+                output.print("  • Let pxrun auto-assign a VMID by removing it from your config")
+                output.print("  • Or specify a different VMID in your configuration")
                 sys.exit(1)
-        except ValueError as e:
-            # VMID conflict or validation error
-            click.echo(f"\n❌ Configuration Error: {e}", err=True)
-            click.echo("\nSuggestions:", err=True)
-            click.echo(f"  • Use 'pxrun list' to see existing containers", err=True)
-            if "already exists" in str(e).lower():
-                try:
-                    next_vmid = proxmox.get_next_vmid()
-                    click.echo(f"  • Next available VMID: {next_vmid}", err=True)
-                except:
-                    pass
-            click.echo(f"  • Let pxrun auto-assign a VMID by removing it from your config", err=True)
-            click.echo(f"  • Or specify a different VMID in your configuration", err=True)
-            sys.exit(1)
-        except RuntimeError as e:
-            click.echo(f"\n❌ Creation Failed: {e}", err=True)
-            sys.exit(1)
-
-        click.echo(f"✓ Container created successfully (VMID: {container.vmid})")
+            except RuntimeError as e:
+                output.error(f"Creation Failed: {e}")
+                sys.exit(1)
 
         # Configure LXC for Tailscale if needed (must be done before starting)
         if provision and provisioning_config and provisioning_config.tailscale:
             if not proxmox.configure_lxc_for_tailscale(container.node, container.vmid):
-                click.echo("Warning: Failed to configure LXC for Tailscale", err=True)
+                output.warning("Failed to configure LXC for Tailscale")
 
         # Start container if requested
         if start:
-            click.echo("Starting container...")
-            task_id = proxmox.start_container(container.node, container.vmid)
-            success, msg = proxmox.wait_for_task(container.node, task_id, timeout=60)
-
-            if success:
-                click.echo("✓ Container started")
-            else:
-                click.echo(f"Warning: Failed to start container: {msg}", err=True)
+            with output.spinner("Starting container...", success_text="Container started"):
+                task_id = proxmox.start_container(container.node, container.vmid)
+                success, msg = proxmox.wait_for_task(container.node, task_id, timeout=60)
+                if not success:
+                    output.warning(f"Failed to start container: {msg}")
 
         # Run provisioning if configured OR just set up locales
         if provision:
             if provisioning_config and provisioning_config.has_provisioning():
-                click.echo("\n🚀 Starting container provisioning...")
-
                 # Wait a moment for container to fully start
                 time.sleep(3)
 
-                if proxmox.provision_container_via_exec(container.node, container.vmid, provisioning_config, verbose):
-                    click.echo("\n✅ All provisioning completed successfully!")
+                # Don't use spinner - the provisioning method uses Live displays internally
+                # Count total provisioning steps for progress indicator
+                provisioning_steps = []
+                if provisioning_config.packages:
+                    provisioning_steps.append(f"Install {len(provisioning_config.packages)} package(s)")
+                if provisioning_config.docker:
+                    provisioning_steps.append("Install Docker")
+                if provisioning_config.tailscale:
+                    provisioning_steps.append("Configure Tailscale")
+                if provisioning_config.scripts:
+                    provisioning_steps.append(f"Run {len(provisioning_config.scripts)} script(s)")
+                
+                total_steps = len(provisioning_steps) + 1  # +1 for package list update
+                output.info(f"Starting container provisioning ({total_steps} steps):")
+                
+                # Show what will be installed as an indented list
+                output.print("  • Update package lists")
+                for step in provisioning_steps:
+                    output.print(f"  • {step}")
+                
+                success = proxmox.provision_container_via_exec(container.node, container.vmid, provisioning_config, verbose)
+                if success:
+                    output.success("All provisioning completed successfully!")
                 else:
-                    click.echo("\n❌ Some provisioning steps failed", err=True)
-                    click.echo("\nYou can manually provision the container with:")
-                    click.echo(f"  pxrun ssh {container.vmid}")
-                    click.echo("  Or access it via the Proxmox web interface")
+                    output.error("Some provisioning steps failed")
+                    output.info("You can manually provision the container with:")
+                    output.print(f"  pxrun ssh {container.vmid}")
+                    output.print("  Or access it via the Proxmox web interface")
             else:
                 # No explicit provisioning, but still set up locales to prevent SSH warnings
-                click.echo("Setting up locales...")
                 time.sleep(3)  # Wait for container to be ready
                 
                 # Create an empty provisioning config just for locale setup
                 from src.models.provisioning import ProvisioningConfig
                 empty_config = ProvisioningConfig()
                 
-                # This will just run locale setup since the config is empty
+                # This will just run locale setup since the config is empty (no spinner due to potential live output)
                 proxmox.provision_container_via_exec(container.node, container.vmid, empty_config, verbose=False)
 
         # Get actual IP address if using DHCP
@@ -325,15 +361,25 @@ def create(ctx, config, hostname, template, node, cores, memory, storage,
             except Exception as e:
                 pass  # Fall back to hostname if IP lookup fails
 
-        click.echo(f"\nContainer {container.hostname} is ready!")
+        output.success(f"Container {container.hostname} is ready!")
+        
+        # Get Tailscale info if available
+        tailscale_info = proxmox.get_stored_tailscale_info()
+        
+        # Display connection options
+        output.print("[cyan]Connect with:[/cyan]")
         if actual_ip and actual_ip.lower() != 'dhcp':
-            click.echo(f"Connect with: ssh root@{actual_ip}")
+            output.print(f"  • Local:     ssh root@{actual_ip}")
         else:
-            click.echo(f"Connect with: ssh root@{container.hostname}")
-            click.echo("Note: Container may need a few moments for DHCP assignment")
+            output.print(f"  • Local:     ssh root@{container.hostname}")
+            if not tailscale_info:
+                output.info("Container may need a few moments for DHCP assignment")
+        
+        if tailscale_info:
+            output.print(f"  • Tailscale: ssh root@{tailscale_info['fqdn']} [dim]({tailscale_info['ip']})[/dim]")
 
     except Exception as e:
         if ctx.obj.get('DEBUG'):
             raise
-        click.echo(f"Error: {e}", err=True)
+        output.error(str(e))
         sys.exit(1)

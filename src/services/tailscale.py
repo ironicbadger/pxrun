@@ -522,27 +522,29 @@ class TailscaleNodeManager:
         Returns:
             True if node was removed or not found, False on error
         """
+        from src.utils import output
+        
         node = self.find_container_node(container_hostname, vmid)
         
         if not node:
-            logger.info(f"No Tailscale node found for container {container_hostname}")
+            output.info(f"No Tailscale node found for container {container_hostname}")
             return True
         
-        logger.info(f"Found Tailscale node: {node.name}")
+        output.success(f"Found Tailscale node: {node.name}")
         
         # Confirm deletion unless forced
         if not force:
             from src.cli.prompts import confirm_tailscale_node_removal
             if not confirm_tailscale_node_removal(node.name, node.id):
-                logger.info("Tailscale node removal cancelled by user")
+                output.warning("Tailscale node removal cancelled")
                 return False
         
         # Delete the node
         success = self.api_client.delete_node(node.id)
         
         if success:
-            logger.info(f"Successfully removed Tailscale node {node.name}")
+            output.success(f"Removed Tailscale node {node.name}")
         else:
-            logger.error(f"Failed to remove Tailscale node {node.name}")
+            output.error(f"Failed to remove Tailscale node {node.name}")
         
         return success

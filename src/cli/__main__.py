@@ -4,11 +4,16 @@
 import sys
 import logging
 import warnings
+import os
 import click
 
-# Suppress SSL warning for macOS system Python
-import urllib3
-warnings.filterwarnings('ignore', category=urllib3.exceptions.NotOpenSSLWarning)
+# Suppress all warnings unless in debug mode
+if '--debug' not in sys.argv:
+    warnings.filterwarnings('ignore')
+    os.environ['PYTHONWARNINGS'] = 'ignore'
+    # Suppress urllib3 warnings specifically
+    import urllib3
+    urllib3.disable_warnings()
 
 from src.cli import __version__
 from src.cli.commands.create import create
@@ -28,11 +33,17 @@ def cli(ctx, debug):
 
     Manage LXC containers on Proxmox VE clusters with ease.
     """
-    # Setup logging
-    level = logging.DEBUG if debug else logging.INFO
+    # Setup logging - suppress INFO unless debug
+    if debug:
+        level = logging.DEBUG
+        log_format = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    else:
+        level = logging.WARNING  # Only show warnings and errors
+        log_format = '%(message)s'
+    
     logging.basicConfig(
         level=level,
-        format='%(levelname)s: %(message)s' if not debug else '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+        format=log_format
     )
 
     # Store debug flag in context
