@@ -28,7 +28,7 @@ setup(
         "Programming Language :: Python :: 3.12",
         "Operating System :: OS Independent",
     ],
-    python_requires=">=3.11",
+    python_requires=">=3.9",
     install_requires=requirements,
     entry_points={
         "console_scripts": [
