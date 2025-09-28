@@ -285,7 +285,7 @@ class ProxmoxService:
         """
         try:
             config = self.client.nodes(node_name).lxc(vmid).config.get()
-            return Container.from_api_response(config, node_name)
+            return Container.from_api_response(config, node_name, vmid=vmid)
         except Exception as e:
             logger.error(f"Failed to get container {vmid}: {e}")
             return None
@@ -335,7 +335,7 @@ class ProxmoxService:
         Returns:
             List of StoragePool objects
         """
-        pools = []
+        pools_dict = {}  # Use dict to deduplicate by storage name
 
         if node_name:
             nodes = [node_name]
@@ -347,13 +347,20 @@ class ProxmoxService:
                 storage_data = self.client.nodes(node).storage.get()
                 for storage in storage_data:
                     pool = StoragePool.from_api_response(storage)
-                    if node not in pool.nodes:
-                        pool.nodes.append(node)
-                    pools.append(pool)
+                    pool_name = pool.name
+
+                    if pool_name in pools_dict:
+                        # Pool already exists, just add this node to available nodes
+                        if node not in pools_dict[pool_name].nodes:
+                            pools_dict[pool_name].nodes.append(node)
+                    else:
+                        # New pool
+                        pool.nodes = [node]
+                        pools_dict[pool_name] = pool
             except Exception as e:
                 logger.warning(f"Failed to get storage from node {node}: {e}")
 
-        return pools
+        return list(pools_dict.values())
 
     # Template operations
 
@@ -368,7 +375,7 @@ class ProxmoxService:
         Returns:
             List of Template objects
         """
-        templates = []
+        templates_dict = {}  # Use dict to deduplicate by template name
 
         if node_name:
             nodes = [node_name]
@@ -393,14 +400,21 @@ class ProxmoxService:
                     for item in contents:
                         if item.get('content') == 'vztmpl':
                             template = Template.from_api_response(item, pool.name)
-                            if node not in template.available_on_nodes:
-                                template.available_on_nodes.append(node)
-                            templates.append(template)
+                            template_key = f"{pool.name}:{template.name}"
+
+                            if template_key in templates_dict:
+                                # Template already exists, just add this node to available_on_nodes
+                                if node not in templates_dict[template_key].available_on_nodes:
+                                    templates_dict[template_key].available_on_nodes.append(node)
+                            else:
+                                # New template
+                                template.available_on_nodes = [node]
+                                templates_dict[template_key] = template
 
                 except Exception as e:
                     logger.warning(f"Failed to get templates from {pool.name} on {node}: {e}")
 
-        return templates
+        return list(templates_dict.values())
 
     # Task operations
 

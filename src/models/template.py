@@ -74,7 +74,7 @@ class Template:
             raise ValueError("Template name is required")
 
         # Validate format
-        valid_formats = ["vztmpl", "iso", "qcow2", "raw"]
+        valid_formats = ["vztmpl", "iso", "qcow2", "raw", "tzst"]
         if self.format and self.format not in valid_formats:
             raise ValueError(f"Invalid template format: {self.format}")
 
@@ -94,9 +94,8 @@ class Template:
         Returns:
             Full path including storage and format
         """
-        if self.format:
-            return f"{self.storage}:{self.format}/{self.name}"
-        return f"{self.storage}:{self.name}"
+        # LXC templates always use 'vztmpl' format in their path regardless of file extension
+        return f"{self.storage}:vztmpl/{self.name}"
 
     @property
     def display_name(self) -> str:
