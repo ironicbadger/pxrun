@@ -1,33 +1,36 @@
 #!/bin/bash
-# Script to build and test the pxrun package locally
+# Script to build and test the pxrun package locally using uv
 
 set -e
 
-echo "Building and testing pxrun package..."
+echo "Building and testing pxrun package with uv..."
+
+# Check if uv is installed
+if ! command -v uv &> /dev/null; then
+    echo "Installing uv..."
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+    source $HOME/.cargo/env
+fi
 
 # Clean previous builds
 echo "Cleaning previous builds..."
 rm -rf dist/ build/ *.egg-info/ .eggs/
 
-# Ensure we have the latest build tools
-echo "Installing build tools..."
-pip install --quiet --upgrade pip setuptools wheel build twine
-
-# Build the package
+# Build the package with uv
 echo "Building package..."
-python -m build
+uv build
 
-# Check the package
+# Check the package with twine via uvx
 echo "Checking package with twine..."
-twine check dist/*
+uvx twine check dist/*
 
 # Install in a test environment
 echo "Creating test virtual environment..."
-python3 -m venv test_env
+uv venv test_env
 source test_env/bin/activate
 
 echo "Installing package in test environment..."
-pip install --quiet dist/*.whl
+uv pip install dist/*.whl
 
 # Test the installed package
 echo "Testing installed package..."
@@ -43,5 +46,5 @@ echo ""
 echo "Package files created:"
 ls -lh dist/
 echo ""
-echo "To install locally: pip install dist/*.whl"
+echo "To install locally: uv pip install dist/*.whl"
 echo "To upload to PyPI: ./scripts/publish.sh"
