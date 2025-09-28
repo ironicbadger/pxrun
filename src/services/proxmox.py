@@ -619,6 +619,79 @@ class ProxmoxService:
             logger.error(f"Provisioning failed: {e}")
             return False
 
+    def configure_lxc_for_tailscale(self, node_name: str, vmid: int) -> bool:
+        """Configure LXC container for Tailscale by adding TUN device mapping.
+
+        Args:
+            node_name: Node where container resides
+            vmid: Container ID
+
+        Returns:
+            True if configuration succeeded, False otherwise
+        """
+        import paramiko
+        import os
+
+        # Suppress paramiko logging for cleaner output
+        paramiko_logger = logging.getLogger('paramiko')
+        original_level = paramiko_logger.level
+        paramiko_logger.setLevel(logging.WARNING)
+
+        try:
+            logger.info("Configuring LXC for Tailscale...")
+
+            # SSH to the Proxmox node
+            ssh = paramiko.SSHClient()
+            ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+
+            ssh_key_path = os.environ.get('SSH_KEY_PATH', '~/.ssh/id_rsa')
+            ssh_key_path = os.path.expanduser(ssh_key_path)
+
+            ssh.connect(
+                hostname=node_name,
+                username='root',
+                key_filename=ssh_key_path if os.path.exists(ssh_key_path) else None,
+                timeout=30
+            )
+
+            # Check if TUN device mapping already exists
+            check_cmd = f"grep -q 'dev/net/tun' /etc/pve/lxc/{vmid}.conf"
+            stdin, stdout, stderr = ssh.exec_command(check_cmd)
+            exit_code = stdout.channel.recv_exit_status()
+
+            if exit_code == 0:
+                logger.debug("TUN device mapping already exists")
+                ssh.close()
+                return True
+
+            # Add TUN device mapping to LXC config
+            logger.debug("Adding TUN device mapping to LXC config")
+            config_lines = [
+                "# Allow TUN device for Tailscale",
+                "lxc.cgroup2.devices.allow: c 10:200 rwm",
+                "lxc.mount.entry: /dev/net/tun dev/net/tun none bind,create=file"
+            ]
+
+            for line in config_lines:
+                add_cmd = f"echo '{line}' >> /etc/pve/lxc/{vmid}.conf"
+                stdin, stdout, stderr = ssh.exec_command(add_cmd)
+                exit_code = stdout.channel.recv_exit_status()
+                if exit_code != 0:
+                    error = stderr.read().decode('utf-8')
+                    logger.error(f"Failed to add config line: {error}")
+                    ssh.close()
+                    return False
+
+            ssh.close()
+            logger.info("LXC configured for Tailscale")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to configure LXC for Tailscale: {e}")
+            return False
+        finally:
+            paramiko_logger.setLevel(original_level)
+
 
 # Alias for backwards compatibility
 ProxmoxAPI = ProxmoxService

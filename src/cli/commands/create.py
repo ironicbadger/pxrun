@@ -222,6 +222,11 @@ def create(ctx, config, hostname, template, node, cores, memory, storage,
 
         click.echo(f"✓ Container created successfully (VMID: {container.vmid})")
 
+        # Configure LXC for Tailscale if needed (must be done before starting)
+        if provision and provisioning_config and provisioning_config.tailscale:
+            if not proxmox.configure_lxc_for_tailscale(container.node, container.vmid):
+                click.echo("Warning: Failed to configure LXC for Tailscale", err=True)
+
         # Start container if requested
         if start:
             click.echo("Starting container...")
