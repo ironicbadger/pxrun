@@ -609,7 +609,7 @@ class ProxmoxService:
                     ("Install Tailscale", "/tmp/tailscale-install.sh"),
                     ("Start Tailscale daemon", "systemctl enable --now tailscaled"),
                     ("Wait for daemon", "sleep 2"),
-                    ("Connect to Tailscale", f"tailscale up --authkey={auth_key}")
+                    ("Connect to Tailscale", f"tailscale up --authkey={auth_key} --ssh")
                 ]
                 for description, cmd in commands:
                     success, output = self.exec_container_command(node_name, vmid, cmd)
