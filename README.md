@@ -6,6 +6,8 @@
 
 A CLI tool to simplify LXC container lifecycle management on remote Proxmox clusters.
 
+![create](create.png)
+
 ## Features
 
 - 🚀 **Quick Container Creation**: Create containers with < 6 prompts in under 60 seconds
