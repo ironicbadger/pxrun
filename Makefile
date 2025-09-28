@@ -1,4 +1,4 @@
-.PHONY: help install dev-install test lint format clean build docker-build docker-run
+.PHONY: help install dev-install test lint format clean build docker-build docker-run venv venv-clean docker-test docker-test-contract docker-test-integration docker-test-unit docker-test-shell docker-test-lint docker-test-build
 
 PYTHON := python3
 PIP := $(PYTHON) -m pip
@@ -87,9 +87,40 @@ docker-run:
 		--env-file .env \
 		$(PROJECT):latest
 
+# Docker test targets
+docker-test:
+	docker compose -f docker-compose.test.yml run --rm test
+
+docker-test-contract:
+	docker compose -f docker-compose.test.yml run --rm test-contract
+
+docker-test-integration:
+	docker compose -f docker-compose.test.yml run --rm test-integration
+
+docker-test-unit:
+	docker compose -f docker-compose.test.yml run --rm test-unit
+
+docker-test-shell:
+	docker compose -f docker-compose.test.yml run --rm shell
+
+docker-test-lint:
+	docker compose -f docker-compose.test.yml run --rm lint
+
+docker-test-build:
+	docker compose -f docker-compose.test.yml build
+
+# Virtual environment targets
+venv:
+	./scripts/setup-venv.sh
+	@echo "Virtual environment ready! Run: source .venv/bin/activate"
+
+venv-clean:
+	rm -rf .venv
+
 # Development workflow
-dev: dev-install
+dev: venv
 	@echo "Development environment ready!"
+	@echo "Activate with: source .venv/bin/activate"
 
 ci: lint test
 	@echo "CI checks passed!"

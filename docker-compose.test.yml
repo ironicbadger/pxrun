@@ -1,0 +1,58 @@
+version: '3.8'
+
+services:
+  test:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    volumes:
+      # Mount source code for live development
+      - ./src:/app/src:ro
+      - ./tests:/app/tests:ro
+      # Mount config files
+      - ./pyproject.toml:/app/pyproject.toml:ro
+      - ./setup.py:/app/setup.py:ro
+      # Cache directories for faster rebuilds
+      - pytest-cache:/app/.pytest_cache
+      - mypy-cache:/app/.mypy_cache
+    environment:
+      - MOCK_PROXMOX=true
+      - PROXMOX_HOST=https://mock.proxmox.local
+      - PROXMOX_TOKEN_ID=test@pve!test
+      - PROXMOX_TOKEN_SECRET=test-token-secret
+      - COVERAGE_FILE=/tmp/.coverage
+    command: pytest -v --cov=src --cov-report=term-missing --cov-report=html:/tmp/htmlcov
+
+  # Service for running specific test suites
+  test-contract:
+    extends: test
+    command: pytest tests/contract -v
+
+  test-integration:
+    extends: test
+    command: pytest tests/integration -v
+
+  test-unit:
+    extends: test
+    command: pytest tests/unit -v
+
+  # Service for linting and type checking
+  lint:
+    extends: test
+    command: sh -c "ruff check src tests && mypy src"
+
+  # Service for code formatting check
+  format-check:
+    extends: test
+    command: black --check src tests
+
+  # Interactive shell for debugging
+  shell:
+    extends: test
+    command: /bin/bash
+    stdin_open: true
+    tty: true
+
+volumes:
+  pytest-cache:
+  mypy-cache:

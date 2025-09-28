@@ -105,23 +105,50 @@ provisioning:
 
 ### Setup development environment
 
+#### Option 1: Using Virtual Environment (Recommended for local development)
+
 ```bash
 # Clone repository
 git clone https://github.com/yourusername/pxrun.git
 cd pxrun
 
-# Create virtual environment
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+# Setup virtual environment automatically
+make venv
+# Or manually:
+./scripts/setup-venv.sh
 
-# Install development dependencies
-pip install -r requirements-dev.txt
-pip install -e .
+# Activate virtual environment
+source .venv/bin/activate
+
+# Your prompt should now show (.venv)
+```
+
+#### Option 2: Using Docker (Recommended for consistent testing)
+
+```bash
+# Build test container
+make docker-test-build
+
+# Run all tests in Docker
+make docker-test
+
+# Run specific test suites
+make docker-test-contract     # Contract tests only
+make docker-test-integration  # Integration tests only
+make docker-test-unit         # Unit tests only
+
+# Interactive shell in test container
+make docker-test-shell
 ```
 
 ### Run tests
 
+#### In Virtual Environment
+
 ```bash
+# Activate virtual environment first
+source .venv/bin/activate
+
 # All tests
 pytest
 
@@ -130,7 +157,23 @@ pytest --cov=src --cov-report=html
 
 # Specific test types
 pytest tests/unit
+pytest tests/contract
 pytest tests/integration -m "not slow"
+```
+
+#### Using Docker (Isolated Environment)
+
+```bash
+# Run all tests in Docker container
+make docker-test
+
+# Or using docker compose directly
+docker compose -f docker-compose.test.yml run --rm test
+
+# Run specific test suites
+docker compose -f docker-compose.test.yml run --rm test-contract
+docker compose -f docker-compose.test.yml run --rm test-integration
+docker compose -f docker-compose.test.yml run --rm test-unit
 ```
 
 ### Code quality
