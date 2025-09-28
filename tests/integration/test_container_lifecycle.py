@@ -537,6 +537,242 @@ class TestContainerLifecycle:
                 # This test documents the expected API interaction pattern
                 assert len(proxmox_instance.method_calls) >= 6  # At minimum
 
+    def test_create_interactive(self, mock_proxmox_api, mock_ssh_client):
+        """
+        Test interactive container creation workflow.
+
+        This test validates the interactive creation process where users
+        are prompted for configuration values step by step.
+        """
+        with pytest.raises(ImportError):
+            from src.cli.commands.create import CreateCommand
+            from src.services.proxmox import ProxmoxService
+            from src.services.provisioning import ProvisioningService
+
+            with patch('src.services.proxmox.ProxmoxService') as mock_proxmox_service:
+                with patch('src.services.provisioning.ProvisioningService') as mock_provisioning_service:
+                    with patch('paramiko.SSHClient', return_value=mock_ssh_client):
+                        with patch('builtins.input') as mock_input:
+
+                            # Mock interactive input responses
+                            mock_input.side_effect = [
+                                'interactive-test',  # hostname
+                                'pve01',            # node
+                                'debian-13',        # template
+                                '2',                # cores
+                                '2048',             # memory
+                                '15',               # storage
+                                'y'                 # confirm creation
+                            ]
+
+                            # Setup service mocks
+                            proxmox_instance = mock_proxmox_service.return_value
+                            proxmox_instance.get_nodes.return_value = ['pve01', 'pve02']
+                            proxmox_instance.get_templates.return_value = ['debian-13', 'ubuntu-22.04']
+                            proxmox_instance.get_next_vmid.return_value = 102
+                            proxmox_instance.create_container.return_value = {
+                                'vmid': 102,
+                                'task_id': 'task_interactive'
+                            }
+                            proxmox_instance.wait_for_task.return_value = True
+                            proxmox_instance.start_container.return_value = True
+
+                            provisioning_instance = mock_provisioning_service.return_value
+                            provisioning_instance.provision_container.return_value = True
+
+                            # Execute interactive create command
+                            create_cmd = CreateCommand()
+                            result = create_cmd.run_interactive()
+
+                            # Verify interactive creation succeeded
+                            assert result['vmid'] == 102
+                            assert result['hostname'] == 'interactive-test'
+                            assert result['status'] == 'created'
+
+                            # Verify user was prompted for all required fields
+                            assert mock_input.call_count >= 6
+
+    def test_create_from_config(self, mock_proxmox_api, mock_ssh_client):
+        """
+        Test container creation from YAML configuration file.
+
+        This test validates creating containers using a YAML configuration
+        file with all settings pre-defined.
+        """
+        with pytest.raises(ImportError):
+            from src.cli.commands.create import CreateCommand
+            from src.services.config_manager import ConfigManager
+            from src.services.proxmox import ProxmoxService
+            from src.services.provisioning import ProvisioningService
+
+            sample_config = {
+                'container': {
+                    'hostname': 'config-test-container',
+                    'template': 'ubuntu-22.04-standard',
+                    'node': 'pve01',
+                    'cores': 4,
+                    'memory': 4096,
+                    'storage': 25
+                },
+                'provisioning': {
+                    'install_docker': True,
+                    'install_tailscale': False,
+                    'custom_scripts': [
+                        'apt-get update',
+                        'apt-get install -y nginx'
+                    ]
+                }
+            }
+
+            with patch('src.services.config_manager.ConfigManager') as mock_config_manager:
+                with patch('src.services.proxmox.ProxmoxService') as mock_proxmox_service:
+                    with patch('src.services.provisioning.ProvisioningService') as mock_provisioning_service:
+                        with patch('paramiko.SSHClient', return_value=mock_ssh_client):
+
+                            # Setup config manager mock
+                            config_instance = mock_config_manager.return_value
+                            config_instance.load_config.return_value = sample_config
+                            config_instance.validate_config.return_value.is_valid = True
+                            config_instance.apply_defaults.return_value = sample_config
+
+                            # Setup service mocks
+                            proxmox_instance = mock_proxmox_service.return_value
+                            proxmox_instance.get_next_vmid.return_value = 103
+                            proxmox_instance.create_container.return_value = {
+                                'vmid': 103,
+                                'task_id': 'task_config'
+                            }
+                            proxmox_instance.wait_for_task.return_value = True
+                            proxmox_instance.start_container.return_value = True
+
+                            provisioning_instance = mock_provisioning_service.return_value
+                            provisioning_instance.provision_container.return_value = True
+
+                            # Execute create from config command
+                            create_cmd = CreateCommand()
+                            result = create_cmd.run_from_config(config_file='/path/to/config.yaml')
+
+                            # Verify creation from config succeeded
+                            assert result['vmid'] == 103
+                            assert result['hostname'] == 'config-test-container'
+                            assert result['status'] == 'created'
+
+                            # Verify config was loaded and validated
+                            config_instance.load_config.assert_called_once_with('/path/to/config.yaml')
+                            config_instance.validate_config.assert_called_once()
+
+    def test_provisioning(self, mock_proxmox_api, mock_ssh_client):
+        """
+        Test container provisioning workflow.
+
+        This test validates the provisioning process that installs software
+        and configures containers after creation.
+        """
+        with pytest.raises(ImportError):
+            from src.services.provisioning import ProvisioningService
+            from src.services.ssh_provisioner import SSHProvisioner
+
+            provisioning_config = {
+                'vmid': 104,
+                'hostname': 'provision-test',
+                'node': 'pve01',
+                'provisioning': {
+                    'install_docker': True,
+                    'install_tailscale': True,
+                    'tailscale_auth_key': 'tskey-test-123',
+                    'custom_scripts': [
+                        'apt-get update && apt-get upgrade -y',
+                        'apt-get install -y htop vim curl'
+                    ]
+                }
+            }
+
+            with patch('src.services.ssh_provisioner.SSHProvisioner') as mock_ssh_provisioner:
+                with patch('src.services.provisioning.ProvisioningService') as mock_provisioning_service:
+
+                    # Setup SSH provisioner mock
+                    ssh_instance = mock_ssh_provisioner.return_value
+                    ssh_instance.connect.return_value = True
+                    ssh_instance.execute_in_container.return_value.exit_code = 0
+                    ssh_instance.provision_container.return_value.success = True
+
+                    # Setup provisioning service mock
+                    provisioning_instance = mock_provisioning_service.return_value
+                    provisioning_instance.provision_container.return_value = {
+                        'success': True,
+                        'installed_packages': ['docker-ce', 'tailscale'],
+                        'executed_scripts': 2,
+                        'duration': 45.2
+                    }
+
+                    # Execute provisioning workflow
+                    provisioning_service = ProvisioningService()
+                    result = provisioning_service.provision_container(provisioning_config)
+
+                    # Verify provisioning succeeded
+                    assert result['success'] is True
+                    assert 'docker-ce' in result['installed_packages']
+                    assert 'tailscale' in result['installed_packages']
+                    assert result['executed_scripts'] == 2
+
+                    # Verify SSH provisioner was used
+                    mock_ssh_provisioner.assert_called_once()
+                    ssh_instance.provision_container.assert_called_once_with(provisioning_config)
+
+    def test_destroy(self, mock_proxmox_api):
+        """
+        Test container destruction workflow.
+
+        This test validates the complete container destruction process
+        including stopping, cleanup, and verification.
+        """
+        with pytest.raises(ImportError):
+            from src.cli.commands.destroy import DestroyCommand
+            from src.services.proxmox import ProxmoxService
+
+            with patch('src.services.proxmox.ProxmoxService') as mock_proxmox_service:
+
+                # Setup service mocks for destroy
+                proxmox_instance = mock_proxmox_service.return_value
+                proxmox_instance.find_container.return_value = {
+                    'vmid': 105,
+                    'hostname': 'destroy-test',
+                    'node': 'pve01',
+                    'status': 'running'
+                }
+                proxmox_instance.stop_container.return_value = {
+                    'task_id': 'task_stop'
+                }
+                proxmox_instance.wait_for_task.return_value = True
+                proxmox_instance.destroy_container.return_value = {
+                    'task_id': 'task_destroy'
+                }
+                proxmox_instance.verify_container_cleanup.return_value = {
+                    'storage_cleaned': True,
+                    'network_cleaned': True,
+                    'config_removed': True
+                }
+
+                # Execute destroy command
+                destroy_cmd = DestroyCommand()
+                result = destroy_cmd.run(
+                    container_id=105,
+                    force=True,
+                    confirm=True,
+                    cleanup_verification=True
+                )
+
+                # Verify destruction succeeded
+                assert result['vmid'] == 105
+                assert result['status'] == 'destroyed'
+                assert 'destroyed successfully' in result['message']
+
+                # Verify proper sequence of operations
+                proxmox_instance.find_container.assert_called_once_with(105)
+                proxmox_instance.stop_container.assert_called_once_with(105)
+                proxmox_instance.destroy_container.assert_called_once_with(105)
+                proxmox_instance.verify_container_cleanup.assert_called_once_with(105)
+
 
 class TestLifecycleIntegrationRequirements:
     """Tests that validate specific lifecycle integration requirements."""
