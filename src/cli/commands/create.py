@@ -210,15 +210,33 @@ def create(ctx, config, hostname, template, node, cores, memory, storage,
 
         # Create container
         click.echo(f"\nCreating container {container.hostname}...")
-        task_id = proxmox.create_container(container)
-        click.echo(f"Creation task started: {task_id}")
+        try:
+            task_id = proxmox.create_container(container)
+            click.echo(f"Creation task started: {task_id}")
 
-        # Wait for creation to complete
-        click.echo("Waiting for container creation to complete...")
-        success, msg = proxmox.wait_for_task(container.node, task_id, timeout=120)
+            # Wait for creation to complete
+            click.echo("Waiting for container creation to complete...")
+            success, msg = proxmox.wait_for_task(container.node, task_id, timeout=120)
 
-        if not success:
-            click.echo(f"Container creation failed: {msg}", err=True)
+            if not success:
+                click.echo(f"Container creation failed: {msg}", err=True)
+                sys.exit(1)
+        except ValueError as e:
+            # VMID conflict or validation error
+            click.echo(f"\n❌ Configuration Error: {e}", err=True)
+            click.echo("\nSuggestions:", err=True)
+            click.echo(f"  • Use 'pxrun list' to see existing containers", err=True)
+            if "already exists" in str(e).lower():
+                try:
+                    next_vmid = proxmox.get_next_vmid()
+                    click.echo(f"  • Next available VMID: {next_vmid}", err=True)
+                except:
+                    pass
+            click.echo(f"  • Let pxrun auto-assign a VMID by removing it from your config", err=True)
+            click.echo(f"  • Or specify a different VMID in your configuration", err=True)
+            sys.exit(1)
+        except RuntimeError as e:
+            click.echo(f"\n❌ Creation Failed: {e}", err=True)
             sys.exit(1)
 
         click.echo(f"✓ Container created successfully (VMID: {container.vmid})")

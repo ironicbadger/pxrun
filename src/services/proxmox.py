@@ -193,11 +193,25 @@ class ProxmoxService:
             Task ID for the creation operation
 
         Raises:
-            ValueError: If validation fails
+            ValueError: If validation fails or VMID already exists
             RuntimeError: If API call fails
         """
         # Validate container configuration
         container.validate()
+
+        # Check if VMID already exists
+        existing = None
+        try:
+            existing = self.get_container_info(container.node, container.vmid)
+        except Exception as e:
+            # If we can't check, continue (unless it's a ValueError we're raising)
+            if isinstance(e, ValueError):
+                raise
+            pass
+        
+        if existing:
+            logger.error(f"Container with VMID {container.vmid} already exists on node {container.node}")
+            raise ValueError(f"Container with VMID {container.vmid} already exists. Please use a different VMID or remove the existing container.")
 
         # Get node
         node = self.client.nodes(container.node)
@@ -212,8 +226,28 @@ class ProxmoxService:
             logger.info(f"Container creation started: VMID={container.vmid}, Task={task_id}")
             return task_id
         except Exception as e:
-            logger.error(f"Failed to create container: {e}")
-            raise RuntimeError(f"Container creation failed: {e}")
+            error_msg = str(e)
+            logger.error(f"Failed to create container: {error_msg}")
+            
+            # Provide more specific error messages for common failures
+            if "500 Internal Server Error" in error_msg:
+                # Check for common causes of 500 errors
+                if "already exists" in error_msg.lower() or "duplicate" in error_msg.lower():
+                    raise ValueError(f"Container with VMID {container.vmid} already exists. Please use a different VMID.")
+                elif "storage" in error_msg.lower():
+                    raise RuntimeError(f"Storage pool error: {error_msg}. Please check that storage pool '{container.storage_pool}' exists and has sufficient space.")
+                elif "template" in error_msg.lower():
+                    raise RuntimeError(f"Template error: {error_msg}. Please check that template '{container.template}' exists and is accessible.")
+                else:
+                    raise RuntimeError(f"Container creation failed with server error. This often means the VMID {container.vmid} is already in use, the storage pool is full, or there's a template issue. Original error: {error_msg}")
+            elif "401" in error_msg or "permission" in error_msg.lower():
+                raise RuntimeError(f"Permission denied. Please check your API token has the required privileges for creating containers.")
+            elif "404" in error_msg:
+                raise RuntimeError(f"Resource not found. Please check that node '{container.node}' exists and is accessible.")
+            elif "timeout" in error_msg.lower():
+                raise RuntimeError(f"Operation timed out. The Proxmox server may be overloaded or the container creation is taking longer than expected.")
+            else:
+                raise RuntimeError(f"Container creation failed: {error_msg}")
 
     def destroy_container(self, node_name: str, vmid: int, purge: bool = True) -> str:
         """Destroy an LXC container.
