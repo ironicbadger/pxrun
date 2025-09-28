@@ -490,6 +490,11 @@ class ProxmoxService:
         import paramiko
         import os
 
+        # Suppress paramiko logging for cleaner output
+        paramiko_logger = logging.getLogger('paramiko')
+        original_level = paramiko_logger.level
+        paramiko_logger.setLevel(logging.WARNING)
+
         try:
             # SSH to the specific Proxmox node (not the API endpoint)
             # The node_name is the actual server we want to connect to via Tailscale SSH
@@ -500,7 +505,6 @@ class ProxmoxService:
             ssh_key_path = os.environ.get('SSH_KEY_PATH', '~/.ssh/id_rsa')
             ssh_key_path = os.path.expanduser(ssh_key_path)
 
-            logger.debug(f"Connecting to node {node_name} via SSH")
             ssh.connect(
                 hostname=node_name,  # Use the actual node name (e.g., "c137")
                 username='root',
@@ -529,6 +533,9 @@ class ProxmoxService:
         except Exception as e:
             logger.error(f"Failed to execute command in container {vmid}: {e}")
             return False, str(e)
+        finally:
+            # Restore original paramiko log level
+            paramiko_logger.setLevel(original_level)
 
     def provision_container_via_exec(self, node_name: str, vmid: int, provisioning_config) -> bool:
         """Provision container using pct exec commands.
@@ -576,7 +583,6 @@ class ProxmoxService:
                     ("Install Docker", "bash -c 'DEBIAN_FRONTEND=noninteractive apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin'")
                 ]
                 for description, cmd in commands:
-                    logger.debug(f"Docker installation: {description}")
                     success, output = self.exec_container_command(node_name, vmid, cmd)
                     if not success:
                         logger.error(f"Failed to {description.lower()}: {output}")
@@ -601,7 +607,6 @@ class ProxmoxService:
                     ("Connect to Tailscale", f"tailscale up --authkey={auth_key}")
                 ]
                 for description, cmd in commands:
-                    logger.debug(f"Tailscale: {description}")
                     success, output = self.exec_container_command(node_name, vmid, cmd)
                     if not success:
                         logger.error(f"Failed to {description.lower()}: {output}")
