@@ -453,23 +453,28 @@ class ProxmoxService:
 
         return False, f"Task timeout after {timeout} seconds"
 
-    def get_next_vmid(self) -> int:
+    def get_next_vmid(self, min_vmid: int = 100) -> int:
         """Get the next available VMID.
+
+        Args:
+            min_vmid: Minimum VMID to start from (default: 100)
 
         Returns:
             Next available VMID
         """
         try:
             result = self.client.cluster.nextid.get()
-            return int(result)
+            vmid = int(result)
+            # Ensure we don't go below the minimum
+            return max(vmid, min_vmid)
         except Exception as e:
             logger.warning(f"Failed to get next VMID: {e}")
             # Fallback: find highest VMID and add 1
             containers = self.list_containers()
             if containers:
                 max_vmid = max(ct['vmid'] for ct in containers)
-                return max_vmid + 1
-            return 100  # Start from 100 if no containers
+                return max(max_vmid + 1, min_vmid)
+            return min_vmid  # Start from min_vmid if no containers
 
     def exec_container_command(self, node_name: str, vmid: int, command: str) -> Tuple[bool, str]:
         """Execute a command in a container via pct exec on Proxmox host.

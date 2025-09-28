@@ -58,6 +58,11 @@ def create(ctx, config, hostname, template, node, cores, memory, storage,
             config_data = config_mgr.load_config(config)
             container = config_mgr.parse_container_config(config_data)
 
+            # Assign next available VMID if not specified in config
+            # Start from 5000 for config-based containers to avoid conflicts
+            if not container.vmid or container.vmid == 0:
+                container.vmid = proxmox.get_next_vmid(min_vmid=5000)
+
             # Override with command line options
             if hostname:
                 container.hostname = hostname
