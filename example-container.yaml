@@ -2,7 +2,8 @@
 # Based on your interactive session
 
 container:
-  hostname: test
+  vmid: 1250
+  hostname: testlxc
   node: c137
   template: "c137-isos:vztmpl/debian-13-standard_13.1-1_amd64.tar.zst"
 
