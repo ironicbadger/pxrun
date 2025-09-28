@@ -472,7 +472,7 @@ class ProxmoxService:
             return 100  # Start from 100 if no containers
 
     def exec_container_command(self, node_name: str, vmid: int, command: str) -> Tuple[bool, str]:
-        """Execute a command in a container via pct exec.
+        """Execute a command in a container via pct exec on Proxmox host.
 
         Args:
             node_name: Node where container resides
@@ -482,10 +482,48 @@ class ProxmoxService:
         Returns:
             Tuple of (success, output)
         """
+        import paramiko
+        import os
+
         try:
-            # Use the pct exec API endpoint
-            result = self.client.nodes(node_name).lxc(vmid).exec.post(command=command)
-            return True, result
+            # Get Proxmox host from connection details
+            proxmox_host = self.auth.host.replace('https://', '').replace('http://', '')
+            if ':' in proxmox_host:
+                proxmox_host = proxmox_host.split(':')[0]
+
+            # Setup SSH connection to Proxmox host
+            ssh = paramiko.SSHClient()
+            ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+
+            # Try to connect with SSH key from environment
+            ssh_key_path = os.environ.get('SSH_KEY_PATH', '~/.ssh/id_rsa')
+            ssh_key_path = os.path.expanduser(ssh_key_path)
+
+            ssh.connect(
+                hostname=proxmox_host,
+                username='root',
+                key_filename=ssh_key_path if os.path.exists(ssh_key_path) else None,
+                timeout=30
+            )
+
+            # Execute pct exec command
+            pct_command = f"pct exec {vmid} -- {command}"
+            logger.debug(f"Executing on {node_name}: {pct_command}")
+
+            stdin, stdout, stderr = ssh.exec_command(pct_command)
+            exit_code = stdout.channel.recv_exit_status()
+
+            output = stdout.read().decode('utf-8')
+            error = stderr.read().decode('utf-8')
+
+            ssh.close()
+
+            if exit_code == 0:
+                return True, output
+            else:
+                logger.error(f"Command failed with exit code {exit_code}: {error}")
+                return False, error
+
         except Exception as e:
             logger.error(f"Failed to execute command in container {vmid}: {e}")
             return False, str(e)
@@ -504,78 +542,89 @@ class ProxmoxService:
         try:
             # Install SSH keys first
             if provisioning_config.ssh_keys:
-                for ssh_key in provisioning_config.ssh_keys:
-                    # Create .ssh directory
-                    success, _ = self.exec_container_command(node_name, vmid, "mkdir -p /root/.ssh")
-                    if not success:
-                        logger.error("Failed to create .ssh directory")
-                        return False
+                logger.info("Installing SSH keys...")
+                # Create .ssh directory
+                success, output = self.exec_container_command(node_name, vmid, "mkdir -p /root/.ssh")
+                if not success:
+                    logger.error(f"Failed to create .ssh directory: {output}")
+                    return False
 
-                    # Add SSH key
-                    success, _ = self.exec_container_command(
+                for ssh_key in provisioning_config.ssh_keys:
+                    # Add SSH key (use printf to avoid issues with quotes)
+                    success, output = self.exec_container_command(
                         node_name, vmid,
-                        f"echo '{ssh_key}' >> /root/.ssh/authorized_keys"
+                        f"printf '%s\\n' '{ssh_key}' >> /root/.ssh/authorized_keys"
                     )
                     if not success:
-                        logger.error("Failed to add SSH key")
+                        logger.error(f"Failed to add SSH key: {output}")
                         return False
 
-                    # Set permissions
-                    success, _ = self.exec_container_command(node_name, vmid, "chmod 700 /root/.ssh")
-                    if not success:
-                        logger.error("Failed to set .ssh permissions")
-                        return False
+                # Set permissions
+                success, output = self.exec_container_command(node_name, vmid, "chmod 700 /root/.ssh")
+                if not success:
+                    logger.error(f"Failed to set .ssh permissions: {output}")
+                    return False
 
-                    success, _ = self.exec_container_command(node_name, vmid, "chmod 600 /root/.ssh/authorized_keys")
-                    if not success:
-                        logger.error("Failed to set authorized_keys permissions")
-                        return False
+                success, output = self.exec_container_command(node_name, vmid, "chmod 600 /root/.ssh/authorized_keys")
+                if not success:
+                    logger.error(f"Failed to set authorized_keys permissions: {output}")
+                    return False
+
+                logger.info("SSH keys installed successfully")
 
             # Update package lists
-            success, _ = self.exec_container_command(node_name, vmid, "apt-get update")
+            logger.info("Updating package lists...")
+            success, output = self.exec_container_command(node_name, vmid, "apt-get update")
             if not success:
-                logger.warning("Failed to update package lists")
+                logger.warning(f"Failed to update package lists: {output}")
 
             # Install packages
             if provisioning_config.packages:
                 packages_str = " ".join(provisioning_config.packages)
-                success, _ = self.exec_container_command(
+                logger.info(f"Installing packages: {packages_str}")
+                success, output = self.exec_container_command(
                     node_name, vmid,
-                    f"apt-get install -y {packages_str}"
+                    f"DEBIAN_FRONTEND=noninteractive apt-get install -y {packages_str}"
                 )
                 if not success:
-                    logger.error(f"Failed to install packages: {packages_str}")
+                    logger.error(f"Failed to install packages: {output}")
                     return False
+                logger.info("Packages installed successfully")
 
             # Install Docker if requested
             if provisioning_config.docker:
-                # Install Docker
+                logger.info("Installing Docker...")
                 commands = [
-                    "apt-get install -y ca-certificates curl",
-                    "install -m 0755 -d /etc/apt/keyrings",
-                    "curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc",
-                    "chmod a+r /etc/apt/keyrings/docker.asc",
-                    'echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null',
-                    "apt-get update",
-                    "apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin"
+                    ("Install prerequisites", "DEBIAN_FRONTEND=noninteractive apt-get install -y ca-certificates curl"),
+                    ("Create keyrings directory", "install -m 0755 -d /etc/apt/keyrings"),
+                    ("Download Docker GPG key", "curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc"),
+                    ("Set GPG key permissions", "chmod a+r /etc/apt/keyrings/docker.asc"),
+                    ("Add Docker repository", 'echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null'),
+                    ("Update package lists", "apt-get update"),
+                    ("Install Docker", "DEBIAN_FRONTEND=noninteractive apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin")
                 ]
-                for cmd in commands:
-                    success, _ = self.exec_container_command(node_name, vmid, cmd)
+                for description, cmd in commands:
+                    logger.debug(f"Docker installation: {description}")
+                    success, output = self.exec_container_command(node_name, vmid, cmd)
                     if not success:
-                        logger.error(f"Failed to execute Docker installation command: {cmd}")
+                        logger.error(f"Failed to {description.lower()}: {output}")
                         return False
+                logger.info("Docker installed successfully")
 
             # Install Tailscale if configured
             if provisioning_config.tailscale and provisioning_config.tailscale.auth_key:
+                logger.info("Installing Tailscale...")
                 commands = [
-                    "curl -fsSL https://tailscale.com/install.sh | sh",
-                    f"tailscale up --authkey={provisioning_config.tailscale.auth_key}"
+                    ("Install Tailscale", "curl -fsSL https://tailscale.com/install.sh | sh"),
+                    ("Connect to Tailscale", f"tailscale up --authkey={provisioning_config.tailscale.auth_key}")
                 ]
-                for cmd in commands:
-                    success, _ = self.exec_container_command(node_name, vmid, cmd)
+                for description, cmd in commands:
+                    logger.debug(f"Tailscale: {description}")
+                    success, output = self.exec_container_command(node_name, vmid, cmd)
                     if not success:
-                        logger.error(f"Failed to execute Tailscale command: {cmd}")
+                        logger.error(f"Failed to {description.lower()}: {output}")
                         return False
+                logger.info("Tailscale configured successfully")
 
             return True
 
