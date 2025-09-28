@@ -3,24 +3,24 @@ FROM python:3.11-slim
 # Set working directory
 WORKDIR /app
 
-# Install system dependencies
+# Install system dependencies and uv
 RUN apt-get update && apt-get install -y \
     openssh-client \
     git \
     curl \
     make \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && curl -LsSf https://astral.sh/uv/install.sh | sh
 
 # Copy requirements first for better caching
 COPY requirements.txt requirements-dev.txt ./
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements-dev.txt
+RUN /root/.cargo/bin/uv pip install --system --no-cache -r requirements-dev.txt
 
 # Copy application code
 COPY . .
 
 # Install the application in development mode
-RUN pip install --no-cache-dir -e .
+RUN /root/.cargo/bin/uv pip install --system --no-cache -e .
 
 # Create non-root user
 RUN useradd -m -s /bin/bash pxrun && \

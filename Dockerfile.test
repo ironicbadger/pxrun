@@ -4,7 +4,7 @@ FROM python:3.11-slim
 # Set working directory
 WORKDIR /app
 
-# Install system dependencies
+# Install system dependencies and uv
 RUN apt-get update && apt-get install -y \
     openssh-client \
     git \
@@ -13,24 +13,22 @@ RUN apt-get update && apt-get install -y \
     # For building Python packages with C extensions
     gcc \
     python3-dev \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && curl -LsSf https://astral.sh/uv/install.sh | sh
 
-# Create virtual environment
-RUN python -m venv /opt/venv
+# Create virtual environment with uv
+RUN /root/.cargo/bin/uv venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
-
-# Upgrade pip and install wheel
-RUN pip install --upgrade pip setuptools wheel
 
 # Copy requirements first for better caching
 COPY requirements.txt requirements-dev.txt ./
-RUN pip install -r requirements-dev.txt
+RUN /root/.cargo/bin/uv pip install -r requirements-dev.txt
 
 # Copy test files and source code
 COPY . .
 
 # Install the application in editable mode
-RUN pip install -e .
+RUN /root/.cargo/bin/uv pip install -e .
 
 # Set environment variables for testing
 ENV PYTHONUNBUFFERED=1
