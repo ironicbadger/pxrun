@@ -1,0 +1,33 @@
+#compdef pxrun
+# Zsh completion for pxrun
+# Installation:
+#   - Copy to directory in $fpath (e.g., /usr/local/share/zsh/site-functions/_pxrun)
+#   - Or add to ~/.zshrc: fpath=(/path/to/completions $fpath)
+
+_pxrun() {
+    local -a completions
+    local -a response
+    (( ! $+commands[pxrun] )) && return 1
+
+    response=("${(@f)$(env COMP_WORDS="${words[*]}" COMP_CWORD=$((CURRENT-1)) _PXRUN_COMPLETE=zsh_complete pxrun)}")
+
+    for type arg in ${response}; do
+        case $type in
+            plain)
+                completions+=($arg)
+                ;;
+            dir)
+                _path_files -/
+                ;;
+            file)
+                _path_files -f
+                ;;
+        esac
+    done
+
+    if [ -n "$completions" ]; then
+        compadd -U -V unsorted -a completions
+    fi
+}
+
+compdef _pxrun pxrun

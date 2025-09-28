@@ -1,0 +1,49 @@
+# Include package metadata
+include LICENSE
+include README.md
+include CHANGELOG.md
+include requirements.txt
+include requirements-dev.txt
+
+# Include all Python files
+recursive-include src *.py
+
+# Include package data files
+recursive-include src *.yaml *.yml *.json *.txt
+
+# Include example configurations
+recursive-include examples *.yaml *.yml
+
+# Include completions
+recursive-include completions *.bash *.zsh *.fish _* generate_completions.py
+
+# Include tests for development
+recursive-include tests *.py *.yaml *.yml *.json
+
+# Include documentation
+recursive-include docs *.md *.rst *.txt
+
+# Include configuration files
+include pyproject.toml
+include setup.py
+include .env.example
+include Dockerfile
+include Makefile
+
+# Exclude unnecessary files
+global-exclude __pycache__
+global-exclude *.py[cod]
+global-exclude *~
+global-exclude *.swp
+global-exclude .DS_Store
+global-exclude .git*
+global-exclude .mypy_cache
+global-exclude .pytest_cache
+global-exclude .ruff_cache
+global-exclude .coverage
+global-exclude htmlcov
+global-exclude .venv
+global-exclude venv
+global-exclude build
+global-exclude dist
+global-exclude *.egg-info

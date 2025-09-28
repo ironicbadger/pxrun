@@ -143,3 +143,36 @@ exclude_lines = [
     "class .*\\(Protocol\\):",
     "@abstractmethod",
 ]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]
+exclude = ["tests*", "docs*", "examples*"]
+
+[tool.setuptools.package-data]
+"*" = ["*.yaml", "*.yml", "*.json", "*.txt"]
+
+[project.urls]
+Homepage = "https://github.com/yourusername/pxrun"
+Documentation = "https://github.com/yourusername/pxrun/blob/main/README.md"
+Repository = "https://github.com/yourusername/pxrun.git"
+"Bug Tracker" = "https://github.com/yourusername/pxrun/issues"
+Changelog = "https://github.com/yourusername/pxrun/blob/main/CHANGELOG.md"
+
+[tool.twine]
+repository = "https://upload.pypi.org/legacy/"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/src",
+    "/tests",
+    "/requirements*.txt",
+    "/README.md",
+    "/LICENSE",
+    "/CHANGELOG.md",
+    "pyproject.toml",
+    "setup.py",
+]

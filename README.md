@@ -18,7 +18,7 @@ A CLI tool to simplify LXC container lifecycle management on remote Proxmox clus
 
 ## Installation
 
-### Via pip
+### Via pip (recommended)
 
 ```bash
 pip install pxrun
@@ -30,6 +30,34 @@ pip install pxrun
 git clone https://github.com/yourusername/pxrun.git
 cd pxrun
 pip install -e .
+```
+
+### Using Docker
+
+```bash
+docker pull pxrun:latest
+docker run -v ~/.env:/home/pxrun/.env pxrun --help
+```
+
+### Shell Completions
+
+Enable command-line auto-completion for your shell:
+
+```bash
+# Bash
+source <(pxrun completion bash)
+# Or add to ~/.bashrc:
+echo 'source <(pxrun completion bash)' >> ~/.bashrc
+
+# Zsh
+source <(pxrun completion zsh)
+# Or add to ~/.zshrc:
+echo 'source <(pxrun completion zsh)' >> ~/.zshrc
+
+# Fish
+pxrun completion fish | source
+# Or add to config:
+pxrun completion fish > ~/.config/fish/completions/pxrun.fish
 ```
 
 ## Quick Start
@@ -275,6 +303,64 @@ ruff check src tests
 
 # Type checking
 mypy src
+```
+
+### Packaging and Distribution
+
+#### Building the Package
+
+```bash
+# Build distribution packages
+python -m build
+
+# Or using the test script
+./scripts/build_test.sh
+```
+
+#### Testing Package Installation
+
+```bash
+# Test in a virtual environment
+python3 -m venv test_env
+source test_env/bin/activate
+pip install dist/*.whl
+pxrun --version
+deactivate
+```
+
+#### Publishing to PyPI
+
+```bash
+# Use the publish script (includes test PyPI option)
+./scripts/publish.sh
+
+# Or manually:
+# 1. Build the package
+python -m build
+
+# 2. Check package quality
+twine check dist/*
+
+# 3. Upload to Test PyPI first (optional)
+twine upload --repository testpypi dist/*
+
+# 4. Upload to PyPI
+twine upload dist/*
+```
+
+#### Docker Image
+
+```bash
+# Build Docker image
+docker build -t pxrun:latest .
+
+# Test the image
+docker run --rm pxrun:latest --version
+docker run --rm -v ~/.env:/home/pxrun/.env pxrun:latest list
+
+# Push to registry
+docker tag pxrun:latest yourusername/pxrun:latest
+docker push yourusername/pxrun:latest
 ```
 
 ## Documentation
