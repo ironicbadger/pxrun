@@ -32,10 +32,11 @@ from src.cli import prompts
 @click.option('--start', is_flag=True, default=True, help='Start container after creation')
 @click.option('--provision', is_flag=True, default=True, help='Run provisioning')
 @click.option('--dry-run', is_flag=True, help='Validate without creating')
+@click.option('--verbose', is_flag=True, help='Show detailed command output (or set PXRUN_VERBOSE=1)')
 @click.pass_context
 def create(ctx, config, hostname, template, node, cores, memory, storage,
            storage_pool, network_bridge, ip, gateway, ssh_key, start,
-           provision, dry_run):
+           provision, dry_run, verbose):
     """Create a new LXC container.
 
     Can be run interactively or with a configuration file.
@@ -240,22 +241,46 @@ def create(ctx, config, hostname, template, node, cores, memory, storage,
 
         # Run provisioning if configured
         if provision and provisioning_config and provisioning_config.has_provisioning():
-            click.echo("\nRunning provisioning via Proxmox pct exec...")
+            click.echo("\n🚀 Starting container provisioning...")
 
             # Wait a moment for container to fully start
             time.sleep(3)
 
-            click.echo("Executing provisioning commands on container...")
-            if proxmox.provision_container_via_exec(container.node, container.vmid, provisioning_config):
-                click.echo("✓ Provisioning completed successfully")
+            if proxmox.provision_container_via_exec(container.node, container.vmid, provisioning_config, verbose):
+                click.echo("\n✅ All provisioning completed successfully!")
             else:
-                click.echo("✗ Some provisioning steps failed", err=True)
+                click.echo("\n❌ Some provisioning steps failed", err=True)
                 click.echo("\nYou can manually provision the container with:")
                 click.echo(f"  pxrun ssh {container.vmid}")
                 click.echo("  Or access it via the Proxmox web interface")
 
+        # Get actual IP address if using DHCP
+        actual_ip = container.network_ip
+        if not actual_ip or actual_ip.lower() == 'dhcp':
+            # Try to get the actual assigned IP from Proxmox
+            try:
+                # Wait a moment for network to be ready
+                time.sleep(2)
+                container_info = proxmox.get_container_info(container.node, container.vmid)
+                if container_info:
+                    # Try to extract IP from various possible fields
+                    # Check if there's a 'net' field with IP info
+                    for key, value in container_info.items():
+                        if key.startswith('net') and isinstance(value, str) and 'ip=' in value:
+                            # Extract IP from format like "ip=192.168.1.100/24"
+                            ip_part = value.split('ip=')[1].split(',')[0].split('/')[0]
+                            if ip_part and ip_part != 'dhcp':
+                                actual_ip = ip_part
+                                break
+            except Exception as e:
+                pass  # Fall back to hostname if IP lookup fails
+
         click.echo(f"\nContainer {container.hostname} is ready!")
-        click.echo(f"Connect with: ssh root@{container.network_ip or container.hostname}")
+        if actual_ip and actual_ip.lower() != 'dhcp':
+            click.echo(f"Connect with: ssh root@{actual_ip}")
+        else:
+            click.echo(f"Connect with: ssh root@{container.hostname}")
+            click.echo("Note: Container may need a few moments for DHCP assignment")
 
     except Exception as e:
         if ctx.obj.get('DEBUG'):

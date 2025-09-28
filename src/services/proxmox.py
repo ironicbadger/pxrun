@@ -1,6 +1,7 @@
 """Proxmox API service wrapper."""
 
 import os
+import sys
 import warnings
 from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass
@@ -290,6 +291,24 @@ class ProxmoxService:
             logger.error(f"Failed to get container {vmid}: {e}")
             return None
 
+    def get_container_info(self, node_name: str, vmid: int) -> Optional[Dict[str, Any]]:
+        """Get container runtime information including network details.
+
+        Args:
+            node_name: Node where container resides
+            vmid: Container ID
+
+        Returns:
+            Container runtime info dict or None if not found
+        """
+        try:
+            # Get container status which includes network information
+            status = self.client.nodes(node_name).lxc(vmid).status.current.get()
+            return status
+        except Exception as e:
+            logger.error(f"Failed to get container info for {vmid}: {e}")
+            return None
+
     def start_container(self, node_name: str, vmid: int) -> str:
         """Start a container.
 
@@ -537,42 +556,219 @@ class ProxmoxService:
             # Restore original paramiko log level
             paramiko_logger.setLevel(original_level)
 
-    def provision_container_via_exec(self, node_name: str, vmid: int, provisioning_config) -> bool:
-        """Provision container using pct exec commands.
+    def exec_container_command_streaming(self, node_name: str, vmid: int, command: str, stage_name: str = "", verbose: bool = None) -> Tuple[bool, str]:
+        """Execute a command in a container with real-time output streaming.
+
+        Args:
+            node_name: Node where container resides
+            vmid: Container ID
+            command: Command to execute
+            stage_name: Optional stage name for prefixed output
+            verbose: Whether to show verbose output (defaults to PXRUN_VERBOSE env var)
+
+        Returns:
+            Tuple of (success, full_output)
+        """
+        import paramiko
+        import os
+        import sys
+        import select
+
+        # Check verbosity setting
+        if verbose is None:
+            verbose = os.environ.get('PXRUN_VERBOSE', '1').lower() in ('1', 'true', 'yes')
+
+        # Suppress paramiko logging for cleaner output
+        paramiko_logger = logging.getLogger('paramiko')
+        original_level = paramiko_logger.level
+        paramiko_logger.setLevel(logging.WARNING)
+
+        output_lines = []
+
+        try:
+            # SSH to the specific Proxmox node
+            ssh = paramiko.SSHClient()
+            ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+
+            ssh_key_path = os.environ.get('SSH_KEY_PATH', '~/.ssh/id_rsa')
+            ssh_key_path = os.path.expanduser(ssh_key_path)
+
+            ssh.connect(
+                hostname=node_name,
+                username='root',
+                key_filename=ssh_key_path if os.path.exists(ssh_key_path) else None,
+                timeout=30
+            )
+
+            # Execute pct exec command
+            pct_command = f"pct exec {vmid} -- {command}"
+
+            # Create channel for streaming
+            channel = ssh.get_transport().open_session()
+            channel.exec_command(pct_command)
+
+            # Stream output in real-time
+            while True:
+                # Check if channel is ready for reading
+                ready, _, _ = select.select([channel], [], [], 0.1)
+
+                if ready:
+                    # Read available data
+                    if channel.recv_ready():
+                        chunk = channel.recv(1024).decode('utf-8', errors='replace')
+                        if chunk:
+                            # Print each line with proper indentation (if verbose)
+                            for line in chunk.splitlines():
+                                if line.strip():
+                                    if verbose:
+                                        self._add_to_rolling_buffer(f"   {line}")
+                                    output_lines.append(line)
+                            # Handle partial lines
+                            if not chunk.endswith('\n') and verbose:
+                                sys.stdout.flush()
+
+                    if channel.recv_stderr_ready():
+                        chunk = channel.recv_stderr(1024).decode('utf-8', errors='replace')
+                        if chunk:
+                            for line in chunk.splitlines():
+                                if line.strip():
+                                    if verbose:
+                                        self._add_to_rolling_buffer(f"   {line}")
+                                    output_lines.append(line)
+
+                # Check if command finished
+                if channel.exit_status_ready():
+                    break
+
+            # Get final exit status
+            exit_code = channel.recv_exit_status()
+            full_output = '\n'.join(output_lines)
+
+            ssh.close()
+
+            return exit_code == 0, full_output
+
+        except Exception as e:
+            logger.error(f"Failed to execute streaming command: {e}")
+            return False, str(e)
+        finally:
+            paramiko_logger.setLevel(original_level)
+
+    def _print_stage(self, stage_name: str, status: str = "running", verbose: bool = None):
+        """Print a stage indicator with rolling output buffer.
+
+        Args:
+            stage_name: Name of the stage
+            status: running, success, or error
+            verbose: Whether to show verbose output (defaults to PXRUN_VERBOSE env var)
+        """
+        if verbose is None:
+            verbose = os.environ.get('PXRUN_VERBOSE', '1').lower() in ('1', 'true', 'yes')
+
+        icons = {
+            "running": "🔄",
+            "success": "✅",
+            "error": "❌"
+        }
+        icon = icons.get(status, "🔄")
+
+        if status == "running":
+            # Store current stage for rolling buffer
+            self._current_stage = stage_name
+            # Clear previous output and print stage header
+            print(f"\r\033[K{icon} {stage_name}", end="", flush=True)
+            if verbose:
+                print()  # Move to next line for output
+                # Initialize the rolling buffer for this stage
+                if not hasattr(self, '_output_buffer'):
+                    self._output_buffer = []
+                    self._buffer_size = 8
+                else:
+                    # Clear buffer for new stage
+                    self._output_buffer = []
+        else:
+            # Final status - print on new line
+            print(f"\r\033[K{icon} {stage_name}")
+
+    def _add_to_rolling_buffer(self, line: str):
+        """Add line to rolling output buffer and refresh display."""
+        if not hasattr(self, '_output_buffer'):
+            self._output_buffer = []
+            self._buffer_size = 8
+
+        # Add line to buffer
+        self._output_buffer.append(line)
+
+        # Keep only the last N lines
+        if len(self._output_buffer) > self._buffer_size:
+            # Remove the oldest line and redraw
+            self._output_buffer = self._output_buffer[-self._buffer_size:]
+
+            # Clear the screen area and redraw everything
+            # Move cursor up by buffer size + 1 (stage header)
+            print(f"\033[{self._buffer_size + 1}A", end="")
+            # Clear from cursor to end of screen
+            print("\033[J", end="")
+
+            # Redraw stage header
+            if hasattr(self, '_current_stage'):
+                print(f"🔄 {self._current_stage}")
+
+            # Print all buffer contents
+            for buffer_line in self._output_buffer:
+                print(buffer_line)
+        else:
+            # Just print the new line
+            print(line)
+
+        sys.stdout.flush()
+
+    def provision_container_via_exec(self, node_name: str, vmid: int, provisioning_config, verbose: bool = None) -> bool:
+        """Provision container using pct exec commands with stage-based output.
 
         Args:
             node_name: Node where container resides
             vmid: Container ID
             provisioning_config: ProvisioningConfig object
+            verbose: Whether to show verbose output (defaults to PXRUN_VERBOSE env var)
 
         Returns:
             True if provisioning succeeded, False otherwise
         """
         try:
+            # Check verbosity setting
+            if verbose is None:
+                verbose = os.environ.get('PXRUN_VERBOSE', '1').lower() in ('1', 'true', 'yes')
+
             # Skip SSH key installation - Tailscale SSH handles authentication
 
             # Update package lists
-            logger.info("Updating package lists...")
-            success, output = self.exec_container_command(node_name, vmid, "apt-get update")
+            self._print_stage("Updating package lists", "running", verbose)
+            success, output = self.exec_container_command_streaming(node_name, vmid, "apt-get update", verbose=verbose)
             if not success:
-                logger.warning(f"Failed to update package lists: {output}")
+                self._print_stage("Updating package lists", "error")
+                print(f"   Error: {output}")
+                return False
+            self._print_stage("Updating package lists", "success")
 
             # Install packages
             if provisioning_config.packages:
                 packages_str = " ".join(provisioning_config.packages)
-                logger.info(f"Installing packages: {packages_str}")
-                success, output = self.exec_container_command(
+                self._print_stage(f"Installing packages: {packages_str}", "running")
+                success, output = self.exec_container_command_streaming(
                     node_name, vmid,
-                    f"bash -c 'DEBIAN_FRONTEND=noninteractive apt-get install -y {packages_str}'"
+                    f"bash -c 'DEBIAN_FRONTEND=noninteractive apt-get install -y {packages_str}'",
+                    verbose=verbose
                 )
                 if not success:
-                    logger.error(f"Failed to install packages: {output}")
+                    self._print_stage(f"Installing packages", "error")
+                    print(f"   Error: {output}")
                     return False
-                logger.info("Packages installed successfully")
+                self._print_stage(f"Installing packages", "success")
 
             # Install Docker if requested
             if provisioning_config.docker:
-                logger.info("Installing Docker...")
+                self._print_stage("Installing Docker", "running")
                 commands = [
                     ("Install prerequisites", "bash -c 'DEBIAN_FRONTEND=noninteractive apt-get install -y ca-certificates curl'"),
                     ("Create keyrings directory", "install -m 0755 -d /etc/apt/keyrings"),
@@ -583,15 +779,18 @@ class ProxmoxService:
                     ("Install Docker", "bash -c 'DEBIAN_FRONTEND=noninteractive apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin'")
                 ]
                 for description, cmd in commands:
-                    success, output = self.exec_container_command(node_name, vmid, cmd)
+                    if verbose:
+                        print(f"   • {description}...")
+                    success, output = self.exec_container_command_streaming(node_name, vmid, cmd, verbose=verbose)
                     if not success:
-                        logger.error(f"Failed to {description.lower()}: {output}")
+                        self._print_stage("Installing Docker", "error")
+                        print(f"   Error during {description.lower()}: {output}")
                         return False
-                logger.info("Docker installed successfully")
+                self._print_stage("Installing Docker", "success")
 
             # Install Tailscale if configured
             if provisioning_config.tailscale and provisioning_config.tailscale.auth_key:
-                logger.info("Installing Tailscale...")
+                self._print_stage("Installing Tailscale", "running")
 
                 # Resolve environment variable if needed
                 auth_key = provisioning_config.tailscale.auth_key
@@ -599,7 +798,8 @@ class ProxmoxService:
                     env_var = auth_key[2:-1]
                     auth_key = os.environ.get(env_var, "")
                     if not auth_key:
-                        logger.error(f"Environment variable {env_var} not found")
+                        self._print_stage("Installing Tailscale", "error")
+                        print(f"   Error: Environment variable {env_var} not found")
                         return False
 
                 # Use the official installation script but with better error handling
@@ -609,19 +809,75 @@ class ProxmoxService:
                     ("Install Tailscale", "/tmp/tailscale-install.sh"),
                     ("Start Tailscale daemon", "systemctl enable --now tailscaled"),
                     ("Wait for daemon", "sleep 2"),
-                    ("Connect to Tailscale", f"tailscale up --authkey={auth_key} --ssh")
+                    #todo why is accept-risk needed here?
+                    ("Connect to Tailscale", f"tailscale up --authkey={auth_key} --ssh --accept-risk=lose-ssh")
                 ]
                 for description, cmd in commands:
-                    success, output = self.exec_container_command(node_name, vmid, cmd)
+                    if verbose:
+                        print(f"   • {description}...")
+                    success, output = self.exec_container_command_streaming(node_name, vmid, cmd, verbose=verbose)
                     if not success:
-                        logger.error(f"Failed to {description.lower()}: {output}")
+                        self._print_stage("Installing Tailscale", "error")
+                        print(f"   Error during {description.lower()}: {output}")
                         return False
-                logger.info("Tailscale configured successfully")
+                self._print_stage("Installing Tailscale", "success")
+
+            # Run custom scripts if provided
+            if provisioning_config.scripts:
+                for script in provisioning_config.scripts:
+                    self._print_stage(f"Running script: {script.name}", "running")
+
+                    # Write script to temporary file
+                    script_path = f"/tmp/pxrun_script_{script.name}.sh"
+                    script_content = f"#!/bin/{script.interpreter}\n{script.content}"
+
+                    print(f"   • Writing script to {script_path}...")
+                    success, output = self.exec_container_command_streaming(
+                        node_name, vmid,
+                        f"cat > {script_path} << 'EOF'\n{script_content}\nEOF"
+                    )
+                    if not success:
+                        self._print_stage(f"Running script: {script.name}", "error")
+                        print(f"   Error writing script: {output}")
+                        if not script.continue_on_error:
+                            return False
+                        continue
+
+                    print(f"   • Making script executable...")
+                    success, output = self.exec_container_command_streaming(
+                        node_name, vmid, f"chmod +x {script_path}"
+                    )
+                    if not success:
+                        self._print_stage(f"Running script: {script.name}", "error")
+                        print(f"   Error making script executable: {output}")
+                        if not script.continue_on_error:
+                            return False
+                        continue
+
+                    print(f"   • Executing script...")
+                    # Change to working directory and execute
+                    exec_cmd = f"cd {script.working_dir} && {script_path}"
+                    if script.environment:
+                        env_vars = " ".join([f"{k}={v}" for k, v in script.environment.items()])
+                        exec_cmd = f"env {env_vars} {exec_cmd}"
+
+                    success, output = self.exec_container_command_streaming(node_name, vmid, exec_cmd)
+                    if not success:
+                        self._print_stage(f"Running script: {script.name}", "error")
+                        print(f"   Error executing script: {output}")
+                        if not script.continue_on_error:
+                            return False
+                    else:
+                        self._print_stage(f"Running script: {script.name}", "success")
+
+                    # Clean up script file
+                    self.exec_container_command_streaming(node_name, vmid, f"rm -f {script_path}")
 
             return True
 
         except Exception as e:
-            logger.error(f"Provisioning failed: {e}")
+            self._print_stage("Provisioning", "error")
+            print(f"   Error: {e}")
             return False
 
     def configure_lxc_for_tailscale(self, node_name: str, vmid: int) -> bool:
