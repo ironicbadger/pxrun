@@ -1,0 +1,51 @@
+# Example container configuration for pxrun
+# Based on your interactive session
+
+container:
+  vmid: 1250
+  hostname: testlxc
+  node: c137
+  template: "c137-isos:vztmpl/debian-13-standard_13.1-1_amd64.tar.zst"
+
+  # Resources
+  cores: 2
+  memory: 1024  # MB
+  storage: 10   # GB
+  storage_pool: nvmeu2-vmstore
+
+  # Network
+  network_bridge: vmbr0
+  network_ip: dhcp  # or specific IP like "192.168.1.100/24"
+  # network_gateway: "192.168.1.1"  # only needed for static IP
+
+  # Container options
+  start_on_boot: false
+
+# Post-creation provisioning
+provisioning:
+  # SSH key will be read from SSH_KEY_PATH env var if not specified
+  # ssh_keys:
+  #   - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAbc123... user@host"
+
+  # Additional packages to install
+  packages: []
+  # packages:
+  #   - htop
+  #   - vim
+  #   - curl
+
+  # Install Docker
+  docker: true
+
+  # Tailscale configuration
+  tailscale:
+    auth_key: "${TAILSCALE_AUTH_KEY}"  # Uses TAILSCALE_AUTH_KEY from environment
+    # auth_key: "tskey-auth-..."  # Or specify directly
+
+  # Custom scripts (optional)
+  # scripts:
+  #   - name: "custom-setup"
+  #     content: |
+  #       #!/bin/bash
+  #       echo "Custom setup script"
+  #       # Your commands here

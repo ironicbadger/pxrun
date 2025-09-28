@@ -1,0 +1,288 @@
+openapi: 3.0.0
+info:
+  title: pxrun CLI Interface Contract
+  version: 1.0.0
+  description: Command-line interface specification for pxrun LXC management tool
+
+paths:
+  /commands/create:
+    post:
+      summary: Create a new LXC container
+      operationId: createContainer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                config_file:
+                  type: string
+                  description: Path to YAML configuration file
+                interactive:
+                  type: boolean
+                  default: true
+                  description: Enable interactive prompts
+                dry_run:
+                  type: boolean
+                  default: false
+                  description: Validate without creating
+                overrides:
+                  type: object
+                  properties:
+                    hostname:
+                      type: string
+                    node:
+                      type: string
+                    template:
+                      type: string
+                    cores:
+                      type: integer
+                    memory:
+                      type: integer
+                    storage:
+                      type: integer
+      responses:
+        '200':
+          description: Container created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContainerInfo'
+        '400':
+          description: Invalid configuration
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Container already exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Proxmox API unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /commands/destroy:
+    delete:
+      summary: Destroy an LXC container
+      operationId: destroyContainer
+      parameters:
+        - name: container_id
+          in: query
+          required: true
+          schema:
+            type: integer
+            minimum: 100
+            maximum: 999999999
+          description: Container VMID to destroy
+        - name: force
+          in: query
+          schema:
+            type: boolean
+            default: false
+          description: Force destroy even if running
+        - name: confirm
+          in: query
+          schema:
+            type: boolean
+            default: false
+          description: Skip confirmation prompt
+      responses:
+        '200':
+          description: Container destroyed successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  vmid:
+                    type: integer
+                  message:
+                    type: string
+        '404':
+          description: Container not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Proxmox API unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /commands/list:
+    get:
+      summary: List existing containers
+      operationId: listContainers
+      parameters:
+        - name: node
+          in: query
+          schema:
+            type: string
+          description: Filter by node
+        - name: running
+          in: query
+          schema:
+            type: boolean
+          description: Filter by running status
+        - name: format
+          in: query
+          schema:
+            type: string
+            enum: [table, json, yaml]
+            default: table
+          description: Output format
+      responses:
+        '200':
+          description: Container list retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  containers:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ContainerSummary'
+        '503':
+          description: Proxmox API unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /commands/save-config:
+    post:
+      summary: Save container configuration to YAML
+      operationId: saveConfig
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - container_id
+                - output_file
+              properties:
+                container_id:
+                  type: integer
+                  description: Container VMID to export
+                output_file:
+                  type: string
+                  description: Output YAML file path
+                include_provisioning:
+                  type: boolean
+                  default: true
+                  description: Include provisioning scripts
+      responses:
+        '200':
+          description: Configuration saved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  file:
+                    type: string
+                  size:
+                    type: integer
+        '404':
+          description: Container not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+components:
+  schemas:
+    ContainerInfo:
+      type: object
+      required:
+        - vmid
+        - hostname
+        - node
+        - status
+        - connection
+      properties:
+        vmid:
+          type: integer
+        hostname:
+          type: string
+        node:
+          type: string
+        status:
+          type: string
+          enum: [created, provisioning, running, stopped]
+        connection:
+          type: object
+          properties:
+            ssh:
+              type: string
+              description: SSH connection string
+            ip:
+              type: string
+              description: Container IP address
+            console:
+              type: string
+              description: Proxmox console command
+        resources:
+          type: object
+          properties:
+            cores:
+              type: integer
+            memory:
+              type: integer
+            storage:
+              type: integer
+
+    ContainerSummary:
+      type: object
+      required:
+        - vmid
+        - hostname
+        - node
+        - status
+      properties:
+        vmid:
+          type: integer
+        hostname:
+          type: string
+        node:
+          type: string
+        status:
+          type: string
+        uptime:
+          type: string
+        cpu:
+          type: number
+        memory:
+          type: object
+          properties:
+            used:
+              type: integer
+            total:
+              type: integer
+
+    Error:
+      type: object
+      required:
+        - error
+        - message
+      properties:
+        error:
+          type: string
+        message:
+          type: string
+        details:
+          type: object
+        suggestion:
+          type: string

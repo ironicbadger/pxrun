@@ -1,0 +1,416 @@
+openapi: 3.0.0
+info:
+  title: Proxmox VE API Contract (pxrun subset)
+  version: 9.0
+  description: Subset of Proxmox VE 9.x API endpoints used by pxrun
+
+servers:
+  - url: https://{host}:8006/api2/json
+    variables:
+      host:
+        default: proxmox.local
+        description: Proxmox VE host
+
+paths:
+  /access/ticket:
+    post:
+      summary: Create authentication ticket
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - username
+                - password
+              properties:
+                username:
+                  type: string
+                password:
+                  type: string
+      responses:
+        '200':
+          description: Authentication successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      ticket:
+                        type: string
+                      CSRFPreventionToken:
+                        type: string
+
+  /nodes:
+    get:
+      summary: List cluster nodes
+      security:
+        - apiToken: []
+      responses:
+        '200':
+          description: Node list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/NodeInfo'
+
+  /nodes/{node}/lxc:
+    get:
+      summary: List containers on node
+      security:
+        - apiToken: []
+      parameters:
+        - name: node
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Container list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/LXCInfo'
+
+    post:
+      summary: Create LXC container
+      security:
+        - apiToken: []
+      parameters:
+        - name: node
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - vmid
+                - ostemplate
+                - hostname
+                - storage
+              properties:
+                vmid:
+                  type: integer
+                ostemplate:
+                  type: string
+                hostname:
+                  type: string
+                storage:
+                  type: string
+                cores:
+                  type: integer
+                memory:
+                  type: integer
+                rootfs:
+                  type: string
+                net0:
+                  type: string
+                mp0:
+                  type: string
+                  description: Mount point definition
+                features:
+                  type: string
+                  description: Container features
+                start:
+                  type: boolean
+                unprivileged:
+                  type: boolean
+      responses:
+        '200':
+          description: Container created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: string
+                    description: Task UPID
+
+  /nodes/{node}/lxc/{vmid}:
+    delete:
+      summary: Destroy container
+      security:
+        - apiToken: []
+      parameters:
+        - name: node
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: vmid
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Container destroyed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: string
+                    description: Task UPID
+
+  /nodes/{node}/lxc/{vmid}/status/start:
+    post:
+      summary: Start container
+      security:
+        - apiToken: []
+      parameters:
+        - name: node
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: vmid
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Container started
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: string
+
+  /nodes/{node}/lxc/{vmid}/config:
+    get:
+      summary: Get container configuration
+      security:
+        - apiToken: []
+      parameters:
+        - name: node
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: vmid
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Container configuration
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/LXCConfig'
+
+  /nodes/{node}/storage:
+    get:
+      summary: List storage pools on node
+      security:
+        - apiToken: []
+      parameters:
+        - name: node
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Storage list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/StorageInfo'
+
+  /nodes/{node}/storage/{storage}/content:
+    get:
+      summary: List storage contents
+      security:
+        - apiToken: []
+      parameters:
+        - name: node
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: storage
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: content
+          in: query
+          schema:
+            type: string
+            enum: [vztmpl, iso, rootdir]
+      responses:
+        '200':
+          description: Content list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/StorageContent'
+
+  /nodes/{node}/tasks/{upid}/status:
+    get:
+      summary: Get task status
+      security:
+        - apiToken: []
+      parameters:
+        - name: node
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: upid
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Task status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      status:
+                        type: string
+                        enum: [running, stopped]
+                      exitstatus:
+                        type: string
+
+components:
+  schemas:
+    NodeInfo:
+      type: object
+      properties:
+        node:
+          type: string
+        status:
+          type: string
+        cpu:
+          type: number
+        maxcpu:
+          type: integer
+        mem:
+          type: integer
+        maxmem:
+          type: integer
+        uptime:
+          type: integer
+
+    LXCInfo:
+      type: object
+      properties:
+        vmid:
+          type: integer
+        name:
+          type: string
+        status:
+          type: string
+        cpu:
+          type: number
+        maxcpu:
+          type: integer
+        mem:
+          type: integer
+        maxmem:
+          type: integer
+        uptime:
+          type: integer
+
+    LXCConfig:
+      type: object
+      properties:
+        hostname:
+          type: string
+        cores:
+          type: integer
+        memory:
+          type: integer
+        rootfs:
+          type: string
+        net0:
+          type: string
+        mp0:
+          type: string
+        features:
+          type: string
+        unprivileged:
+          type: integer
+
+    StorageInfo:
+      type: object
+      properties:
+        storage:
+          type: string
+        type:
+          type: string
+        content:
+          type: string
+        total:
+          type: integer
+        used:
+          type: integer
+        avail:
+          type: integer
+
+    StorageContent:
+      type: object
+      properties:
+        volid:
+          type: string
+        format:
+          type: string
+        size:
+          type: integer
+        content:
+          type: string
+
+  securitySchemes:
+    apiToken:
+      type: apiKey
+      in: header
+      name: Authorization
+      description: 'Format: PVEAPIToken=USER@REALM!TOKENID=UUID'
