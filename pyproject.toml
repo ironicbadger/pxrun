@@ -58,6 +58,7 @@ dev = [
 
 [project.scripts]
 pxrun = "src.cli.__main__:main"
+pxrun-completions = "src.utils.completions:generate"
 
 [tool.pytest.ini_options]
 minversion = "7.0"

@@ -1,7 +1,5 @@
-.PHONY: help install dev-install test lint format clean build docker-build docker-run venv venv-clean docker-test docker-test-contract docker-test-integration docker-test-unit docker-test-shell docker-test-lint docker-test-build
+.PHONY: help install dev-install test lint format clean build docker-build docker-run setup completions
 
-PYTHON := python3
-PIP := $(PYTHON) -m pip
 PROJECT := pxrun
 SRC_DIR := src
 TEST_DIR := tests
@@ -9,42 +7,43 @@ TEST_DIR := tests
 # Default target
 help:
 	@echo "Available targets:"
+	@echo "  setup         - Install uv and create virtual environment"
 	@echo "  install       - Install the package in production mode"
 	@echo "  dev-install   - Install the package in development mode with all dependencies"
 	@echo "  test          - Run all tests with coverage"
-	@echo "  test-unit     - Run unit tests only"
+	@echo "  test-contract - Run contract tests only"
 	@echo "  test-integration - Run integration tests only"
 	@echo "  lint          - Run linters (ruff, mypy)"
-	@echo "  format        - Format code with black"
+	@echo "  format        - Format code with black and ruff"
 	@echo "  clean         - Remove build artifacts and cache files"
 	@echo "  build         - Build distribution packages"
+	@echo "  completions   - Generate shell completions"
 	@echo "  docker-build  - Build Docker image"
 	@echo "  docker-run    - Run Docker container"
 
-# Installation targets
+# Setup and installation targets
+setup:
+	@command -v uv >/dev/null 2>&1 || { echo "Installing uv..."; curl -LsSf https://astral.sh/uv/install.sh | sh; }
+	uv venv
+	@echo "Run 'source .venv/bin/activate' to activate the virtual environment"
+	@echo "Then run 'make dev-install' to install development dependencies"
+
 install:
-	$(PIP) install --upgrade pip
-	$(PIP) install -r requirements.txt
-	$(PIP) install .
+	uv pip install .
 
 dev-install:
-	$(PIP) install --upgrade pip
-	$(PIP) install -r requirements-dev.txt
-	$(PIP) install -e .
+	uv pip install -e ".[dev]"
 	pre-commit install
 
 # Testing targets
 test:
 	pytest $(TEST_DIR) -v --cov=$(SRC_DIR) --cov-report=term-missing --cov-report=html
 
-test-unit:
-	pytest $(TEST_DIR)/unit -v
+test-contract:
+	pytest $(TEST_DIR)/contract -v
 
 test-integration:
 	pytest $(TEST_DIR)/integration -v -m "not slow"
-
-test-contract:
-	pytest $(TEST_DIR)/contract -v
 
 # Code quality targets
 lint:
@@ -60,8 +59,12 @@ check: lint
 
 # Build targets
 build: clean
-	$(PYTHON) -m build
-	twine check dist/*
+	uv build
+	uvx twine check dist/*
+
+# Generate shell completions
+completions:
+	python3 -m src.utils.completions
 
 # Clean targets
 clean:
@@ -87,38 +90,8 @@ docker-run:
 		--env-file .env \
 		$(PROJECT):latest
 
-# Docker test targets
-docker-test:
-	docker compose -f docker-compose.test.yml run --rm test
-
-docker-test-contract:
-	docker compose -f docker-compose.test.yml run --rm test-contract
-
-docker-test-integration:
-	docker compose -f docker-compose.test.yml run --rm test-integration
-
-docker-test-unit:
-	docker compose -f docker-compose.test.yml run --rm test-unit
-
-docker-test-shell:
-	docker compose -f docker-compose.test.yml run --rm shell
-
-docker-test-lint:
-	docker compose -f docker-compose.test.yml run --rm lint
-
-docker-test-build:
-	docker compose -f docker-compose.test.yml build
-
-# Virtual environment targets
-venv:
-	./scripts/setup-venv.sh
-	@echo "Virtual environment ready! Run: source .venv/bin/activate"
-
-venv-clean:
-	rm -rf .venv
-
 # Development workflow
-dev: venv
+dev: setup dev-install
 	@echo "Development environment ready!"
 	@echo "Activate with: source .venv/bin/activate"
 
@@ -126,8 +99,9 @@ ci: lint test
 	@echo "CI checks passed!"
 
 # Release targets
-release-test: build
-	twine upload --repository testpypi dist/*
+publish-test: build
+	uvx twine upload --repository-url https://test.pypi.org/legacy/ dist/*
+	@echo "Test with: uv pip install --index-url https://test.pypi.org/simple/ pxrun"
 
-release: build
-	twine upload dist/*
+publish: build
+	uvx twine upload dist/*

@@ -3,12 +3,7 @@
 
 import os
 import sys
-import click
-
-# Add parent directory to path to import pxrun
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-from src.cli.__main__ import cli
+from pathlib import Path
 
 
 def generate_bash_completion():
@@ -113,38 +108,37 @@ complete -c pxrun -f -a "(_pxrun_completion)"
 '''
 
 
-def main():
+def generate():
     """Generate all completion scripts."""
-    script_dir = os.path.dirname(os.path.abspath(__file__))
+    completions_dir = Path.home() / '.local' / 'share' / 'pxrun' / 'completions'
+    completions_dir.mkdir(parents=True, exist_ok=True)
 
     # Generate bash completion
-    bash_file = os.path.join(script_dir, 'pxrun.bash')
-    with open(bash_file, 'w') as f:
-        f.write(generate_bash_completion())
+    bash_file = completions_dir / 'pxrun.bash'
+    bash_file.write_text(generate_bash_completion())
     print(f"Generated: {bash_file}")
 
     # Generate zsh completion
-    zsh_file = os.path.join(script_dir, '_pxrun')
-    with open(zsh_file, 'w') as f:
-        f.write(generate_zsh_completion())
+    zsh_file = completions_dir / '_pxrun'
+    zsh_file.write_text(generate_zsh_completion())
     print(f"Generated: {zsh_file}")
 
     # Generate fish completion
-    fish_file = os.path.join(script_dir, 'pxrun.fish')
-    with open(fish_file, 'w') as f:
-        f.write(generate_fish_completion())
+    fish_file = completions_dir / 'pxrun.fish'
+    fish_file.write_text(generate_fish_completion())
     print(f"Generated: {fish_file}")
 
+    print("\nCompletions generated in: ", completions_dir)
     print("\nInstallation instructions:")
     print("\nBash:")
-    print("  sudo cp pxrun.bash /etc/bash_completion.d/")
-    print("  or add to ~/.bashrc: source /path/to/pxrun.bash")
+    print(f"  sudo cp {bash_file} /etc/bash_completion.d/")
+    print(f"  or add to ~/.bashrc: source {bash_file}")
     print("\nZsh:")
-    print("  sudo cp _pxrun /usr/local/share/zsh/site-functions/")
-    print("  or add to ~/.zshrc: fpath=(/path/to/completions $fpath)")
+    print(f"  sudo cp {zsh_file} /usr/local/share/zsh/site-functions/")
+    print(f"  or add to ~/.zshrc: fpath=({completions_dir} $fpath)")
     print("\nFish:")
-    print("  cp pxrun.fish ~/.config/fish/completions/")
+    print(f"  cp {fish_file} ~/.config/fish/completions/")
 
 
 if __name__ == '__main__':
-    main()
+    generate()
