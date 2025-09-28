@@ -551,7 +551,7 @@ class ProxmoxService:
                 logger.info(f"Installing packages: {packages_str}")
                 success, output = self.exec_container_command(
                     node_name, vmid,
-                    f"DEBIAN_FRONTEND=noninteractive apt-get install -y {packages_str}"
+                    f"bash -c 'DEBIAN_FRONTEND=noninteractive apt-get install -y {packages_str}'"
                 )
                 if not success:
                     logger.error(f"Failed to install packages: {output}")
@@ -562,13 +562,13 @@ class ProxmoxService:
             if provisioning_config.docker:
                 logger.info("Installing Docker...")
                 commands = [
-                    ("Install prerequisites", "DEBIAN_FRONTEND=noninteractive apt-get install -y ca-certificates curl"),
+                    ("Install prerequisites", "bash -c 'DEBIAN_FRONTEND=noninteractive apt-get install -y ca-certificates curl'"),
                     ("Create keyrings directory", "install -m 0755 -d /etc/apt/keyrings"),
                     ("Download Docker GPG key", "curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc"),
                     ("Set GPG key permissions", "chmod a+r /etc/apt/keyrings/docker.asc"),
-                    ("Add Docker repository", 'echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null'),
+                    ("Add Docker repository", "bash -c '. /etc/os-release && echo \"deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian $VERSION_CODENAME stable\" | tee /etc/apt/sources.list.d/docker.list > /dev/null'"),
                     ("Update package lists", "apt-get update"),
-                    ("Install Docker", "DEBIAN_FRONTEND=noninteractive apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin")
+                    ("Install Docker", "bash -c 'DEBIAN_FRONTEND=noninteractive apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin'")
                 ]
                 for description, cmd in commands:
                     logger.debug(f"Docker installation: {description}")
