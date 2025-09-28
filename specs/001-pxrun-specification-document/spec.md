@@ -93,6 +93,14 @@ A developer working from their laptop needs to quickly create temporary LXC cont
 - **FR-015**: System MUST configure mount points for host directory access
 - **FR-016**: System MUST provision containers via SSH connection to Proxmox node using pct exec commands
 
+#### Tailscale Integration
+- **FR-040**: System MUST list all nodes in the configured Tailnet via API
+- **FR-041**: System MUST automatically detect associated Tailscale nodes when destroying containers
+- **FR-042**: System MUST prompt for confirmation before removing Tailscale nodes from the Tailnet
+- **FR-043**: System MUST support force flag to skip Tailscale node removal confirmation
+- **FR-044**: System MUST match container hostnames to Tailscale nodes including FQDN matching
+- **FR-045**: System MUST cache Tailscale API responses to minimize redundant API calls
+
 #### Operational Requirements
 - **FR-017**: System MUST complete basic container creation in < 60 seconds (excluding template download)
 - **FR-018**: System MUST require < 6 user inputs for basic container creation

@@ -12,10 +12,11 @@ A CLI tool to simplify LXC container lifecycle management on remote Proxmox clus
 - 📝 **YAML Configuration**: Save and reuse container configurations
 - 🔒 **Secure Credentials**: SOPS encryption for sensitive data
 - 🐳 **Docker Support**: Automatic Docker installation and setup
-- 🔗 **Tailscale Integration**: Built-in VPN configuration
+- 🔗 **Tailscale Integration**: Built-in VPN configuration and automatic node management
 - 🎮 **Hardware Acceleration**: Support for device passthrough (Intel QSV)
 - 📁 **Mount Points**: Easy host directory sharing
 - 🔄 **Stateless Operation**: Always queries Proxmox for current state
+- 🗑️ **Smart Cleanup**: Automatically detects and removes associated Tailscale nodes on container destruction
 
 ## Installation
 
@@ -62,18 +63,38 @@ pxrun list
 
 ```bash
 pxrun destroy <vmid>
+# Automatically detects and removes associated Tailscale node
+
+# Skip Tailscale node removal
+pxrun destroy <vmid> --no-remove-tailscale-node
+```
+
+### 5. List Tailscale nodes
+
+```bash
+pxrun list-tailscale-nodes
+# Show only online nodes
+pxrun list-tailscale-nodes --online-only
+# Output in different formats
+pxrun list-tailscale-nodes --format json
 ```
 
 ## Configuration
 
 ### Environment Variables
 
-Create a `.env` file with your Proxmox credentials:
+Create a `.env` file with your Proxmox and Tailscale credentials:
 
 ```env
+# Proxmox Configuration
 PROXMOX_HOST=https://proxmox.example.com:8006
 PROXMOX_TOKEN_ID=user@pve!pxrun
 PROXMOX_TOKEN_SECRET=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+
+# Tailscale Configuration (optional)
+TAILSCALE_AUTH_KEY=tskey-auth-xxxxx  # For container provisioning
+TAILSCALE_API_KEY=tskey-api-xxxxx    # For node management
+TAILSCALE_TAILNET=your-org.ts.net    # Your tailnet domain
 ```
 
 ### Container Configuration
@@ -99,6 +120,52 @@ provisioning:
     - nginx
     - git
   docker: true
+  tailscale:
+    auth_key: ${TAILSCALE_AUTH_KEY}
+    hostname: dev-web-1
+```
+
+## Tailscale Integration
+
+pxrun provides deep integration with Tailscale for VPN connectivity and node management.
+
+### Features
+
+- **Automatic Node Detection**: When destroying containers, pxrun automatically detects associated Tailscale nodes
+- **Smart Matching**: Matches container hostnames to Tailscale nodes, including FQDN matching (e.g., `container` matches `container.tailnet.ts.net`)
+- **Safe Removal**: Prompts for confirmation before removing nodes from your Tailnet
+- **Node Management**: List and manage Tailscale nodes directly from pxrun
+
+### Configuration
+
+Set the following environment variables in your `.env` file:
+
+```env
+# For container provisioning (installs Tailscale in new containers)
+TAILSCALE_AUTH_KEY=tskey-auth-xxxxx
+
+# For node management (required for list-tailscale-nodes and auto-removal)
+TAILSCALE_API_KEY=tskey-api-xxxxx
+TAILSCALE_TAILNET=your-org.ts.net
+```
+
+### Usage
+
+```bash
+# Create container with Tailscale
+pxrun create  # Select Tailscale option during provisioning
+
+# List all Tailscale nodes
+pxrun list-tailscale-nodes
+
+# Destroy container and remove Tailscale node
+pxrun destroy 100  # Prompts for Tailscale node removal
+
+# Force destroy without prompts
+pxrun destroy 100 --force
+
+# Destroy without removing Tailscale node
+pxrun destroy 100 --no-remove-tailscale-node
 ```
 
 ## Development

@@ -87,14 +87,31 @@ python3 -m src.cli create --config mycontainer.yaml
 ### 3. Destroy a Container
 
 ```bash
-# With confirmation prompt
+# With confirmation prompt (also removes Tailscale node if found)
 python3 -m src.cli destroy 120
 
 # Force without confirmation
 python3 -m src.cli destroy 120 --force
+
+# Skip Tailscale node removal
+python3 -m src.cli destroy 120 --no-remove-tailscale-node
 ```
 
-### 4. Export Container Configuration
+### 4. List Tailscale Nodes
+
+```bash
+# List all nodes in your Tailnet
+python3 -m src.cli list-tailscale-nodes
+
+# Show only online nodes
+python3 -m src.cli list-tailscale-nodes --online-only
+
+# Output in different formats
+python3 -m src.cli list-tailscale-nodes --format json
+python3 -m src.cli list-tailscale-nodes --format csv
+```
+
+### 5. Export Container Configuration
 
 ```bash
 # Save to file with container hostname
@@ -160,8 +177,48 @@ provisioning:
     - git
     - vim
   docker: true
+  tailscale:
+    auth_key: ${TAILSCALE_AUTH_KEY}  # From .env
+    hostname: dev-container
   ssh_keys:
     - ssh-rsa AAAAB3... user@host
+```
+
+## Tailscale Integration
+
+pxrun includes built-in Tailscale integration for VPN connectivity:
+
+### Setup
+
+Add these to your `.env` file:
+
+```env
+# For installing Tailscale in containers
+TAILSCALE_AUTH_KEY=tskey-auth-xxxxx
+
+# For managing Tailscale nodes
+TAILSCALE_API_KEY=tskey-api-xxxxx
+TAILSCALE_TAILNET=your-org.ts.net
+```
+
+### Features
+
+- **Automatic Provisioning**: Install and configure Tailscale during container creation
+- **Node Management**: List all Tailscale nodes in your tailnet
+- **Smart Cleanup**: Automatically detect and remove Tailscale nodes when destroying containers
+- **FQDN Matching**: Intelligently matches container names to Tailscale nodes (e.g., `container` matches `container.tailnet.ts.net`)
+
+### Example
+
+```bash
+# Create container with Tailscale
+python3 -m src.cli create  # Select Tailscale option during provisioning
+
+# List Tailscale nodes
+python3 -m src.cli list-tailscale-nodes
+
+# Destroy container and Tailscale node
+python3 -m src.cli destroy 100  # Will prompt to remove Tailscale node
 ```
 
 ## Tips
@@ -174,7 +231,9 @@ provisioning:
 
 3. **Storage**: Default pool is `nvmeu2-vmstore` which appears to be NVMe storage
 
-4. **Debugging**: Add `--debug` flag for verbose output:
+4. **Tailscale**: When destroying containers, pxrun will automatically detect and offer to remove associated Tailscale nodes
+
+5. **Debugging**: Add `--debug` flag for verbose output:
    ```bash
    python3 -m src.cli --debug list
    ```
