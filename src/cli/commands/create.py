@@ -101,9 +101,9 @@ def create(ctx, config, hostname, template, node, cores, memory, storage,
                     )
                     if selected_node:
                         node = selected_node.name
-                    else:
-                        node = prompts.prompt_for_node(nodes)
-                else:
+
+                # If intelligent selection didn't work or wasn't attempted, prompt user
+                if not node:
                     node = prompts.prompt_for_node(nodes)
 
             if not node:
