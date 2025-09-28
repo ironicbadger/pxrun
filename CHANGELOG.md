@@ -26,11 +26,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Command Structure**: `pxrun list-tailscale-nodes` is now `pxrun tailscale list-nodes`
 - **Default Behavior**: Tailscale nodes are now persistent by default (previously ephemeral)
 - **Auth Key Priority**: When API credentials are available, always generates fresh keys instead of using potentially expired ones from environment
+- **Package Manager**: Switched from `apt-get` to `apt` for all Debian/Ubuntu operations (modern best practice)
 
 ### Fixed
 - **Expired Auth Keys**: System now automatically detects and replaces expired auth keys
 - **Key Description Validation**: Fixed "invalid characters" error when generating auth keys
 - **Container Name Sanitization**: Properly sanitizes container names for Tailscale API compatibility
+- **SSH Locale Errors**: Fixed locale configuration issues that caused SSH warnings on first login
+  - Containers now automatically configure `en_US.UTF-8` locale during creation
+  - Properly sets `/etc/default/locale` using Debian's `update-locale` tool
+  - Eliminates "setlocale: LC_CTYPE: cannot change locale" warnings
 
 ### Documentation
 - Updated README with new Tailscale features and configuration options

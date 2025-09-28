@@ -277,20 +277,32 @@ def create(ctx, config, hostname, template, node, cores, memory, storage,
             else:
                 click.echo(f"Warning: Failed to start container: {msg}", err=True)
 
-        # Run provisioning if configured
-        if provision and provisioning_config and provisioning_config.has_provisioning():
-            click.echo("\n🚀 Starting container provisioning...")
+        # Run provisioning if configured OR just set up locales
+        if provision:
+            if provisioning_config and provisioning_config.has_provisioning():
+                click.echo("\n🚀 Starting container provisioning...")
 
-            # Wait a moment for container to fully start
-            time.sleep(3)
+                # Wait a moment for container to fully start
+                time.sleep(3)
 
-            if proxmox.provision_container_via_exec(container.node, container.vmid, provisioning_config, verbose):
-                click.echo("\n✅ All provisioning completed successfully!")
+                if proxmox.provision_container_via_exec(container.node, container.vmid, provisioning_config, verbose):
+                    click.echo("\n✅ All provisioning completed successfully!")
+                else:
+                    click.echo("\n❌ Some provisioning steps failed", err=True)
+                    click.echo("\nYou can manually provision the container with:")
+                    click.echo(f"  pxrun ssh {container.vmid}")
+                    click.echo("  Or access it via the Proxmox web interface")
             else:
-                click.echo("\n❌ Some provisioning steps failed", err=True)
-                click.echo("\nYou can manually provision the container with:")
-                click.echo(f"  pxrun ssh {container.vmid}")
-                click.echo("  Or access it via the Proxmox web interface")
+                # No explicit provisioning, but still set up locales to prevent SSH warnings
+                click.echo("Setting up locales...")
+                time.sleep(3)  # Wait for container to be ready
+                
+                # Create an empty provisioning config just for locale setup
+                from src.models.provisioning import ProvisioningConfig
+                empty_config = ProvisioningConfig()
+                
+                # This will just run locale setup since the config is empty
+                proxmox.provision_container_via_exec(container.node, container.vmid, empty_config, verbose=False)
 
         # Get actual IP address if using DHCP
         actual_ip = container.network_ip

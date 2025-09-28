@@ -774,11 +774,43 @@ class ProxmoxService:
             if verbose is None:
                 verbose = os.environ.get('PXRUN_VERBOSE', '1').lower() in ('1', 'true', 'yes')
 
+            # Configure locales first to prevent SSH warnings (for Debian/Ubuntu containers)
+            self._print_stage("Configuring locales", "running", verbose)
+            
+            # Install locales package first
+            success, output = self.exec_container_command_streaming(
+                node_name, vmid,
+                "bash -c 'export DEBIAN_FRONTEND=noninteractive && apt update -qq && apt install -y locales'",
+                verbose=False
+            )
+            
+            if success:
+                # Now properly configure locales - use dpkg-reconfigure which is the proper Debian way
+                locale_setup_cmds = [
+                    # First, ensure the locale is available in locale.gen
+                    "sed -i 's/^# *en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/' /etc/locale.gen",
+                    # Generate the locale
+                    "locale-gen",
+                    # Set it as the default using update-locale (the proper Debian tool)
+                    "update-locale LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8"
+                ]
+                
+                for cmd in locale_setup_cmds:
+                    success, output = self.exec_container_command_streaming(
+                        node_name, vmid,
+                        cmd,
+                        verbose=False
+                    )
+                    if not success and verbose:
+                        print(f"   Warning: locale command '{cmd}' had issues")
+            
+            self._print_stage("Configuring locales", "success")
+
             # Skip SSH key installation - Tailscale SSH handles authentication
 
             # Update package lists
             self._print_stage("Updating package lists", "running", verbose)
-            success, output = self.exec_container_command_streaming(node_name, vmid, "apt-get update", verbose=verbose)
+            success, output = self.exec_container_command_streaming(node_name, vmid, "apt update", verbose=verbose)
             if not success:
                 self._print_stage("Updating package lists", "error")
                 print(f"   Error: {output}")
@@ -791,7 +823,7 @@ class ProxmoxService:
                 self._print_stage(f"Installing packages: {packages_str}", "running")
                 success, output = self.exec_container_command_streaming(
                     node_name, vmid,
-                    f"bash -c 'DEBIAN_FRONTEND=noninteractive apt-get install -y {packages_str}'",
+                    f"bash -c 'DEBIAN_FRONTEND=noninteractive apt install -y {packages_str}'",
                     verbose=verbose
                 )
                 if not success:
@@ -804,13 +836,13 @@ class ProxmoxService:
             if provisioning_config.docker:
                 self._print_stage("Installing Docker", "running")
                 commands = [
-                    ("Install prerequisites", "bash -c 'DEBIAN_FRONTEND=noninteractive apt-get install -y ca-certificates curl'"),
+                    ("Install prerequisites", "bash -c 'DEBIAN_FRONTEND=noninteractive apt install -y ca-certificates curl'"),
                     ("Create keyrings directory", "install -m 0755 -d /etc/apt/keyrings"),
                     ("Download Docker GPG key", "curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc"),
                     ("Set GPG key permissions", "chmod a+r /etc/apt/keyrings/docker.asc"),
                     ("Add Docker repository", "bash -c '. /etc/os-release && echo \"deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian $VERSION_CODENAME stable\" | tee /etc/apt/sources.list.d/docker.list > /dev/null'"),
-                    ("Update package lists", "apt-get update"),
-                    ("Install Docker", "bash -c 'DEBIAN_FRONTEND=noninteractive apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin'")
+                    ("Update package lists", "apt update"),
+                    ("Install Docker", "bash -c 'DEBIAN_FRONTEND=noninteractive apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin'")
                 ]
                 for description, cmd in commands:
                     if verbose:

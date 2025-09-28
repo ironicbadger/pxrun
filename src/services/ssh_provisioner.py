@@ -222,10 +222,6 @@ class SSHProvisioner:
         Returns:
             True if all provisioning succeeded
         """
-        if not config.has_provisioning():
-            logger.info("No provisioning configured")
-            return True
-
         if not self._client:
             if not self.connect():
                 logger.error("Failed to connect for provisioning")
@@ -233,9 +229,22 @@ class SSHProvisioner:
 
         success = True
 
+        # Always detect OS type and configure locales for Debian/Ubuntu
+        os_type = self._detect_os_type()
+        
+        # Configure locales first (for Debian/Ubuntu systems) - always do this
+        if os_type in ['debian', 'ubuntu']:
+            logger.info("Configuring locales...")
+            self._setup_locales()
+
+        # If no other provisioning is configured, we're done
+        if not config.has_provisioning():
+            logger.info("No additional provisioning configured")
+            return True
+
         # Update package lists first
         logger.info("Updating package lists...")
-        exit_code, _, _ = self.execute_command("apt-get update", timeout=60)
+        exit_code, _, _ = self.execute_command("apt update", timeout=60)
         if exit_code != 0:
             logger.warning("Failed to update package lists")
 
@@ -446,3 +455,88 @@ class SSHProvisioner:
         except Exception as e:
             logger.error(f"File download failed: {e}")
             return False
+
+    def _detect_os_type(self) -> str:
+        """Detect the operating system type of the container.
+
+        Returns:
+            OS type string: 'debian', 'ubuntu', 'alpine', 'centos', 'rocky', or 'unknown'
+        """
+        # Try to read /etc/os-release (works for most modern Linux distros)
+        exit_code, stdout, _ = self.execute_command("cat /etc/os-release 2>/dev/null")
+        
+        if exit_code == 0 and stdout:
+            stdout_lower = stdout.lower()
+            if 'debian' in stdout_lower:
+                return 'debian'
+            elif 'ubuntu' in stdout_lower:
+                return 'ubuntu'
+            elif 'alpine' in stdout_lower:
+                return 'alpine'
+            elif 'centos' in stdout_lower:
+                return 'centos'
+            elif 'rocky' in stdout_lower:
+                return 'rocky'
+            elif 'rhel' in stdout_lower or 'red hat' in stdout_lower:
+                return 'rhel'
+        
+        # Fallback: check for package manager
+        exit_code, _, _ = self.execute_command("which apt 2>/dev/null")
+        if exit_code == 0:
+            return 'debian'  # Could be Debian or Ubuntu
+        
+        exit_code, _, _ = self.execute_command("which apk 2>/dev/null")
+        if exit_code == 0:
+            return 'alpine'
+        
+        exit_code, _, _ = self.execute_command("which yum 2>/dev/null")
+        if exit_code == 0:
+            return 'centos'  # Could be CentOS, RHEL, Rocky
+        
+        return 'unknown'
+
+    def _setup_locales(self) -> bool:
+        """Configure locales for Debian/Ubuntu systems to prevent SSH locale warnings.
+
+        Returns:
+            True if successful, False otherwise
+        """
+        logger.info("Setting up locales for en_US.UTF-8...")
+        
+        # Commands to set up locales on Debian/Ubuntu
+        locale_commands = [
+            # Install locales package if not present
+            "apt update && apt install -y locales 2>/dev/null || true",
+            
+            # Generate en_US.UTF-8 locale
+            "locale-gen en_US.UTF-8",
+            
+            # Update locale settings
+            "update-locale LANG=en_US.UTF-8",
+            
+            # Also set LC_ALL to avoid any remaining warnings
+            "update-locale LC_ALL=en_US.UTF-8",
+            
+            # Make the changes effective for current session
+            "export LANG=en_US.UTF-8",
+            "export LC_ALL=en_US.UTF-8"
+        ]
+        
+        # Execute locale setup commands
+        for cmd in locale_commands:
+            exit_code, stdout, stderr = self.execute_command(cmd, timeout=60)
+            if exit_code != 0 and "locale-gen" in cmd:
+                # locale-gen might fail if locales are already configured
+                logger.warning(f"Locale command had non-zero exit: {cmd}")
+                # Continue anyway as this might not be critical
+        
+        # Verify locale is set correctly
+        exit_code, stdout, _ = self.execute_command("locale")
+        if exit_code == 0:
+            if "en_US.UTF-8" in stdout:
+                logger.info("Locales configured successfully")
+                return True
+            else:
+                logger.warning("Locales may not be fully configured")
+        
+        return True  # Don't fail provisioning if locale setup has issues
