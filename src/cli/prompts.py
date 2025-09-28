@@ -292,3 +292,18 @@ def confirm_action(action: str, details: str = None) -> bool:
         message = f"{action}\n{details}"
 
     return click.confirm(message, default=True)
+
+
+def confirm_tailscale_node_removal(node_name: str, node_id: str) -> bool:
+    """Confirm Tailscale node removal.
+
+    Args:
+        node_name: Name of the Tailscale node
+        node_id: ID of the Tailscale node
+
+    Returns:
+        True if confirmed
+    """
+    click.echo(f"\nTailscale node found: {node_name}")
+    
+    return click.confirm("Remove this node from Tailnet?", default=False)

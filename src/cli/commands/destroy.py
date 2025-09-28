@@ -2,17 +2,22 @@
 
 import click
 import sys
+import os
+import logging
 
 from src.services.proxmox import ProxmoxService
 from src.cli import prompts
+
+logger = logging.getLogger(__name__)
 
 
 @click.command('destroy')
 @click.argument('vmid', type=int)
 @click.option('--force', '-f', is_flag=True, help='Skip confirmation')
 @click.option('--purge', is_flag=True, default=True, help='Also remove from backup storage')
+@click.option('--remove-tailscale-node', is_flag=True, default=True, help='Remove matching Tailscale node from Tailnet')
 @click.pass_context
-def destroy(ctx, vmid, force, purge):
+def destroy(ctx, vmid, force, purge, remove_tailscale_node):
     """Destroy an LXC container.
 
     VMID is the container ID to destroy.
@@ -69,6 +74,35 @@ def destroy(ctx, vmid, force, purge):
                             return
             except Exception as e:
                 click.echo(f"Warning: Could not stop container: {e}", err=True)
+
+        # Check for Tailscale node removal
+        if remove_tailscale_node:
+            # Check if Tailscale API is configured
+            tailscale_configured = bool(os.getenv('TAILSCALE_API_KEY')) and bool(os.getenv('TAILSCALE_TAILNET'))
+            
+            if tailscale_configured:
+                click.echo("\nChecking for associated Tailscale node...")
+                try:
+                    from src.services.tailscale import TailscaleNodeManager
+                    
+                    node_manager = TailscaleNodeManager()
+                    # Try to find and remove the Tailscale node
+                    # Pass force flag to skip additional confirmation if --force was used
+                    success = node_manager.remove_container_node(hostname, vmid, force=force)
+                    
+                    if not success and not force:
+                        # If removal failed and not forced, ask if we should continue
+                        if not click.confirm("Continue with container destruction anyway?", default=True):
+                            click.echo("Cancelled")
+                            return
+                            
+                except Exception as e:
+                    logger.warning(f"Failed to check/remove Tailscale node: {e}")
+                    if ctx.obj.get('DEBUG'):
+                        click.echo(f"Tailscale error: {e}", err=True)
+                    # Continue with container destruction even if Tailscale removal fails
+            else:
+                logger.debug("Tailscale API not configured, skipping node removal")
 
         # Destroy container
         click.echo(f"Destroying container {hostname}...")
